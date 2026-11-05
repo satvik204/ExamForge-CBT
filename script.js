@@ -28,7 +28,7 @@ const DATABASE_RULES = {
         "meta": {
           ".read": "auth != null",
           ".write": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (auth != null && ((!data.exists() && newData.child(\"hostUid\").val() === auth.uid) || (data.child(\"hostUid\").val() === auth.uid && newData.child(\"hostUid\").val() === auth.uid)))",
-          ".validate": "newData.hasChildren([\"hostUid\", \"title\", \"status\", \"createdAt\", \"durationMinutes\", \"shareReports\", \"examChat\", \"marking\"]) && newData.child(\"hostUid\").isString() && newData.child(\"title\").isString() && newData.child(\"title\").val().length <= 150 && newData.child(\"status\").isString() && (newData.child(\"status\").val() === \"lobby\" || newData.child(\"status\").val() === \"started\" || newData.child(\"status\").val() === \"finished\") && newData.child(\"durationMinutes\").isNumber() && newData.child(\"durationMinutes\").val() >= 1 && newData.child(\"durationMinutes\").val() <= 300 && newData.child(\"shareReports\").isBoolean() && newData.child(\"examChat\").isBoolean() && (!data.exists() || newData.child(\"hostUid\").val() === data.child(\"hostUid\").val())"
+          ".validate": "newData.hasChildren([\"hostUid\", \"title\", \"status\", \"createdAt\", \"durationMinutes\", \"shareReports\", \"examChat\", \"marking\"]) && newData.child(\"hostUid\").isString() && newData.child(\"title\").isString() && newData.child(\"title\").val().length <= 150 && newData.child(\"status\").isString() && (newData.child(\"status\").val() === \"lobby\" || newData.child(\"status\").val() === \"started\" || newData.child(\"status\").val() === \"finished\") && newData.child(\"durationMinutes\").isNumber() && newData.child(\"durationMinutes\").val() >= 1 && newData.child(\"durationMinutes\").val() <= 300 && newData.child(\"shareReports\").isBoolean() && newData.child(\"examChat\").isBoolean() && (!data.exists() || newData.child(\"hostUid\").val() === data.child(\"hostUid\").val()) && newData.child('createdAt').isNumber() && newData.child('marking/correct').isNumber() && newData.child('marking/wrong').isNumber() && (!data.exists() || (newData.child('title').val() === data.child('title').val() && newData.child('durationMinutes').val() === data.child('durationMinutes').val() && newData.child('shareReports').val() === data.child('shareReports').val() && newData.child('examChat').val() === data.child('examChat').val() && newData.child('marking/correct').val() === data.child('marking/correct').val() && newData.child('marking/wrong').val() === data.child('marking/wrong').val() && newData.child('createdAt').val() === data.child('createdAt').val() && ((data.child('status').val() === 'lobby' && (newData.child('status').val() === 'lobby' || (newData.child('status').val() === 'started' && newData.child('startedAt').isNumber()))) || (data.child('status').val() === 'started' && (newData.child('status').val() === 'started' || (newData.child('status').val() === 'finished' && newData.child('finishedAt').isNumber()))) || (data.child('status').val() === 'finished' && newData.child('status').val() === 'finished')) && (!data.child('startedAt').exists() || newData.child('startedAt').val() === data.child('startedAt').val()) && (!data.child('finishedAt').exists() || newData.child('finishedAt').val() === data.child('finishedAt').val())))"
         },
         "paper": {
           ".read": "auth != null && (root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid || root.child(\"rooms/\" + $room + \"/members/\" + auth.uid).exists())",
@@ -55,20 +55,20 @@ const DATABASE_RULES = {
           "$uid": {
             ".read": "auth != null && (auth.uid === $uid || root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid)",
             ".write": "auth != null && auth.uid === $uid && !data.exists() && root.child(\"rooms/\" + $room + \"/members/\" + auth.uid).exists() && root.child(\"rooms/\" + $room + \"/meta/status\").val() === \"started\"",
-            ".validate": "newData.hasChildren([\"answers\", \"submittedAt\", \"elapsedSeconds\"]) && newData.child(\"submittedAt\").isNumber() && newData.child(\"elapsedSeconds\").isNumber() && newData.child(\"elapsedSeconds\").val() >= 0"
+            ".validate": "newData.hasChildren([\"answers\", \"submittedAt\", \"elapsedSeconds\"]) && newData.child(\"submittedAt\").isNumber() && newData.child(\"elapsedSeconds\").isNumber() && newData.child(\"elapsedSeconds\").val() >= 0 && newData.child('elapsedSeconds').val() <= root.child('rooms/' + $room + '/meta/durationMinutes').val() * 60 + 10 && newData.child('submittedAt').val() <= now + 60000 && newData.child('submittedAt').val() >= root.child('rooms/' + $room + '/meta/startedAt').val() - 60000"
           }
         },
         "scores": {
           ".read": "auth != null && (root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid || root.child(\"rooms/\" + $room + \"/members/\" + auth.uid).exists())",
           "$uid": {
-            ".write": "auth != null && root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid && root.child(\"rooms/\" + $room + \"/submissions/\" + $uid).exists()",
-            ".validate": "newData.hasChildren([\"score\", \"correct\", \"wrong\", \"unanswered\", \"maxScore\", \"elapsedSeconds\"]) && newData.child(\"score\").isNumber() && newData.child(\"correct\").isNumber() && newData.child(\"wrong\").isNumber() && newData.child(\"unanswered\").isNumber() && newData.child(\"maxScore\").isNumber() && newData.child(\"elapsedSeconds\").isNumber()"
+            ".write": "auth != null && root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid && root.child(\"rooms/\" + $room + \"/submissions/\" + $uid).exists() && !data.exists() && newData.exists()",
+            ".validate": "newData.hasChildren([\"score\", \"correct\", \"wrong\", \"unanswered\", \"maxScore\", \"elapsedSeconds\"]) && newData.child(\"score\").isNumber() && newData.child(\"correct\").isNumber() && newData.child(\"wrong\").isNumber() && newData.child(\"unanswered\").isNumber() && newData.child(\"maxScore\").isNumber() && newData.child(\"elapsedSeconds\").isNumber() && newData.child('correct').val() >= 0 && newData.child('wrong').val() >= 0 && newData.child('unanswered').val() >= 0 && newData.child('correct').val() + newData.child('wrong').val() + newData.child('unanswered').val() === root.child('rooms/' + $room + '/paper/questions').childrenCount() && newData.child('elapsedSeconds').val() >= 0 && newData.child('elapsedSeconds').val() <= root.child('rooms/' + $room + '/meta/durationMinutes').val() * 60 + 10 && newData.child('maxScore').val() >= 0 && newData.child('maxScore').val() <= 100000"
           }
         },
         "reports": {
           "$uid": {
             ".read": "auth != null && (auth.uid === $uid || auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (root.child('rooms/' + $room + '/meta/shareReports').val() === true && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && root.child('rooms/' + $room + '/submissions/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + $uid).exists() && root.child('rooms/' + $room + '/resultSessions/' + auth.uid).val() === true))",
-            ".write": "auth != null && root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid && root.child(\"rooms/\" + $room + \"/submissions/\" + $uid).exists()",
+            ".write": "auth != null && root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid && root.child(\"rooms/\" + $room + \"/submissions/\" + $uid).exists() && !data.exists() && newData.exists()",
             ".validate": "newData.hasChildren([\"questions\", \"subjectStats\"])"
           }
         },
@@ -456,7 +456,9 @@ async function archiveMyRoomReport(){
   if(!S.db||!S.uid||!S.room||!S.myReport||!isGoogleUser())return;
   const score=S.scores?.[S.uid]||((await get(ref(S.db,`rooms/${S.room}/scores/${S.uid}`))).val());
   if(!score)return;
-  await set(ref(S.db,`studentHistory/${S.uid}/${S.room}`),{
+  const historyRef=ref(S.db,`studentHistory/${S.uid}/${S.room}`);
+  if((await get(historyRef)).exists())return;
+  await set(historyRef,{
     uid:S.uid,room:S.room,title:S.meta?.title||'Live CBT',
     name:S.members?.[S.uid]?.name||displayName()||'Student',
     createdAt:Number(score.submittedAt)||Date.now(),score,report:S.myReport
@@ -630,8 +632,8 @@ function maybeFinishRoom(){
   if((all||timeout)&&!S.finishing){S.finishing=true;update(ref(S.db,`rooms/${S.room}/meta`),{status:'finished',finishedAt:serverTimestamp()}).catch(e=>toast(errorMessage(e),true)).finally(()=>S.finishing=false);}
 }
 function renderResults(){
-  if(S.solo){view('results');setText('resultsTitle','Solo result');setText('resultsSub','Your answers were checked automatically against the imported answer key.');}
-  else {view('results');setText('resultsTitle','Squad results & leaderboard');setText('resultsSub',S.meta?.status==='finished'?'All available results are in.':'Results update automatically as participants submit.');}
+  if(S.solo){view('results');setText('resultsTitle','Solo result');setText('resultsSub','Practice score calculated locally. Not independently verified.');}
+  else {view('results');setText('resultsTitle','Squad results & leaderboard');setText('resultsSub',(S.meta?.status==='finished'?'All available results are in. ':'Results update automatically as participants submit. ')+'Scores come from the host browser and are not independently verified.');}
   const ready=!!S.myReport;
   $('waitingResults').hidden=ready;
   $('resultsContent').hidden=!ready;
