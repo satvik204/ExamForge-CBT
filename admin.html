@@ -27,6 +27,11 @@
       <div class="tablewrap"><table><thead><tr><th>Date</th><th>Test / Room</th><th>Student</th><th>Type</th><th>Score</th><th>Correct</th><th>Wrong</th><th>Status</th><th>Report</th></tr></thead><tbody id="historyRows"><tr><td colspan="9">No data loaded.</td></tr></tbody></table></div>
       <p class="muted foot" id="resultCount"></p>
     </section>
+    <section class="panel">
+      <div class="controls"><div><h2>Room management</h2><p class="muted">Administrator only. View any room, finish an active exam, or permanently delete a room. Deleting a room removes its submissions, scores, chat, and reports from the live database.</p></div></div>
+      <div class="tablewrap"><table><thead><tr><th>Room</th><th>Title</th><th>Status</th><th>Members</th><th>Scored</th><th>Actions</th></tr></thead><tbody id="roomManagerRows"><tr><td colspan="6">Load the dashboard to manage rooms.</td></tr></tbody></table></div>
+      <p class="muted">A room's answer key is private to its original host browser. Administrator access to saved answers and scores cannot reconstruct a missing answer key.</p>
+    </section>
     <section id="details" class="panel" hidden><div class="controls"><div><h2 id="detailTitle">Report</h2><p id="detailSub" class="muted"></p></div><button id="closeDetailBtn" class="outline">Close</button></div><div id="detailStats" class="metrics"></div><div id="detailQuestions" class="questions"></div></section>
   </main>
   <footer class="muted">Access is enforced by Firebase rules, not by a hidden webpage link. Solo reports are uploaded only when the student's browser can connect to Firebase. This is a practice-test dashboard, not proctored scoring.</footer>
