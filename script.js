@@ -23,11 +23,11 @@ const FIREBASE_CONFIG = {
 const DATABASE_RULES = {
   "rules": {
     "rooms": {
-      ".read": "auth != null && auth.uid === \"aDoKGJYtSddgooKQDwdcGGefeiv1\"",
+      ".read": "auth != null && auth.uid === \"PASTE_YOUR_GOOGLE_AUTH_UID_HERE\"",
       "$room": {
         "meta": {
           ".read": "auth != null",
-          ".write": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' || (auth != null && ((!data.exists() && newData.child(\"hostUid\").val() === auth.uid) || (data.child(\"hostUid\").val() === auth.uid && newData.child(\"hostUid\").val() === auth.uid)))",
+          ".write": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (auth != null && ((!data.exists() && newData.child(\"hostUid\").val() === auth.uid) || (data.child(\"hostUid\").val() === auth.uid && newData.child(\"hostUid\").val() === auth.uid)))",
           ".validate": "newData.hasChildren([\"hostUid\", \"title\", \"status\", \"createdAt\", \"durationMinutes\", \"shareReports\", \"examChat\", \"marking\"]) && newData.child(\"hostUid\").isString() && newData.child(\"title\").isString() && newData.child(\"title\").val().length <= 150 && newData.child(\"status\").isString() && (newData.child(\"status\").val() === \"lobby\" || newData.child(\"status\").val() === \"started\" || newData.child(\"status\").val() === \"finished\") && newData.child(\"durationMinutes\").isNumber() && newData.child(\"durationMinutes\").val() >= 1 && newData.child(\"durationMinutes\").val() <= 300 && newData.child(\"shareReports\").isBoolean() && newData.child(\"examChat\").isBoolean() && (!data.exists() || newData.child(\"hostUid\").val() === data.child(\"hostUid\").val())"
         },
         "paper": {
@@ -67,29 +67,29 @@ const DATABASE_RULES = {
         },
         "reports": {
           "$uid": {
-            ".read": "auth != null && (auth.uid === $uid || root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid || (root.child(\"rooms/\" + $room + \"/members/\" + auth.uid).exists() && root.child(\"rooms/\" + $room + \"/meta/shareReports\").val() === true && root.child(\"rooms/\" + $room + \"/meta/status\").val() === \"finished\"))",
+            ".read": "auth != null && (auth.uid === $uid || root.child('rooms/' + $room + '/meta/hostUid').val() === auth.uid || auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (root.child('rooms/' + $room + '/meta/shareReports').val() === true && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && root.child('rooms/' + $room + '/submissions/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + $uid).exists() && (root.child('rooms/' + $room + '/meta/status').val() === 'started' || (root.child('rooms/' + $room + '/meta/status').val() === 'finished' && root.child('rooms/' + $room + '/meta/finishedAt').isNumber() && now <= root.child('rooms/' + $room + '/meta/finishedAt').val() + 86400000))))",
             ".write": "auth != null && root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid && root.child(\"rooms/\" + $room + \"/submissions/\" + $uid).exists()",
             ".validate": "newData.hasChildren([\"questions\", \"subjectStats\"])"
           }
         },
-        ".write": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' && !newData.exists()"
+        ".write": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' && !newData.exists()"
       }
     },
     "studentHistory": {
       "$uid": {
-        ".read": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' || (auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous')",
+        ".read": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous')",
         "$room": {
           ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && newData.exists() && !data.exists() && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists() && root.child('rooms/' + $room + '/reports/' + auth.uid).exists()",
           ".validate": "newData.hasChildren([\"uid\", \"room\", \"title\", \"name\", \"createdAt\", \"score\", \"report\"]) && newData.child(\"uid\").val() === auth.uid && newData.child(\"room\").val() === $room && newData.child(\"title\").isString() && newData.child(\"title\").val().length <= 150 && newData.child(\"score/score\").isNumber() && newData.child(\"report/questions\").exists() && newData.child('score/score').val() === root.child('rooms/' + $room + '/scores/' + auth.uid + '/score').val() && newData.child('score/maxScore').val() === root.child('rooms/' + $room + '/scores/' + auth.uid + '/maxScore').val()"
         },
         ".write": "auth != null && auth.uid === $uid && !newData.exists()"
       },
-      ".read": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1'"
+      ".read": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE'"
     },
     "soloHistory": {
-      ".read": "auth != null && auth.uid === \"aDoKGJYtSddgooKQDwdcGGefeiv1\"",
+      ".read": "auth != null && auth.uid === \"PASTE_YOUR_GOOGLE_AUTH_UID_HERE\"",
       "$uid": {
-        ".read": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' || (auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous')",
+        ".read": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous')",
         "$attempt": {
           ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && !data.exists() && newData.exists()",
           ".validate": "newData.hasChildren([\"uid\", \"name\", \"title\", \"createdAt\", \"clientCreatedAt\", \"score\", \"report\"]) && newData.child(\"uid\").val() === auth.uid && newData.child(\"name\").isString() && newData.child(\"name\").val().length <= 30 && newData.child(\"title\").isString() && newData.child(\"title\").val().length <= 150 && newData.child(\"createdAt\").isNumber() && newData.child(\"clientCreatedAt\").isNumber() && newData.child(\"score/score\").isNumber() && newData.child(\"score/maxScore\").isNumber()"
@@ -423,9 +423,9 @@ async function enterRoom(room){
   watch(`rooms/${room}/paper`,data=>{S.paper=data;if(S.meta)applyRoomStatus();});
   watch(`rooms/${room}/members`,data=>{S.members=data||{};renderMembers();renderLeaderboard();if(S.isHost){maybeFinishRoom();get(ref(S.db,`rooms/${room}/submissions`)).then(s=>scoreIncoming(s.val()||{})).catch(e=>toast(errorMessage(e),true));}});
   watch(`rooms/${room}/messages`,data=>{S.messages=data||{};renderMessages();});
-  watch(`rooms/${room}/scores`,data=>{S.scores=data||{};renderLeaderboard();if(S.myReport)archiveMyRoomReport().catch(e=>console.warn('Student history sync pending:',e));if(S.isHost)maybeFinishRoom();});
+  watch(`rooms/${room}/scores`,data=>{S.scores=data||{};renderLeaderboard();if(S.myReport){renderReportSelector();archiveMyRoomReport().catch(e=>console.warn('Student history sync pending:',e));}if(S.isHost)maybeFinishRoom();});
   watch(`rooms/${room}/submissions/${S.uid}`,data=>{S.ownSubmission=data;if(data){if(S.exam)S.exam.submitted=true;applyRoomStatus();}});
-  watch(`rooms/${room}/reports/${S.uid}`,data=>{S.myReport=data;S.reportCache[S.uid]=data;if(data){applyRoomStatus();archiveMyRoomReport().catch(e=>console.warn('Student history sync pending:',e));}});
+  watch(`rooms/${room}/reports/${S.uid}`,data=>{S.myReport=data;S.reportCache[S.uid]=data;if(data){applyRoomStatus();renderReportSelector();archiveMyRoomReport().catch(e=>console.warn('Student history sync pending:',e));}});
   if(S.isHost){
     watch(`rooms/${room}/submissions`,data=>{scoreIncoming(data||{}).catch(e=>toast(`Scoring error: ${errorMessage(e)}`,true));});
   }
@@ -621,24 +621,54 @@ function renderLeaderboard(){if(S.view!=='results'||!S.myReport)return;const boa
   for(const [idx,[uid,score]] of board.entries()){
     const entry=addText('div','leader-row','');entry.append(addText('span','rank',`#${idx+1}`));
     const box=addText('div','','');box.append(addText('strong','',`${roomName(uid)}${uid===S.uid?' (you)':''}`),addText('small','',`${score.correct} correct · ${score.wrong} wrong · ${formatTime(score.elapsedSeconds)} used`));
-    entry.append(box,addText('span','points',`${score.score} / ${score.maxScore}`));list.append(entry);
+    entry.append(box,addText('span','points',`${score.score} / ${score.maxScore}`));
+    if(!S.solo&&(uid===S.uid||S.isHost||S.uid===ADMIN_UID||canViewCurrentRoomPeers())){
+      entry.classList.add('leader-selectable');entry.title='View '+roomName(uid)+' report';entry.tabIndex=0;entry.setAttribute('role','button');
+      const open=()=>{const selector=$('reportSelect');if([...selector.options].some(o=>o.value===uid)){selector.value=uid;selectReport();}};
+      entry.addEventListener('click',open);entry.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();open();}});
+    }
+    list.append(entry);
   }
   const yourScore=S.scores?.[S.uid]||S.scores?.['solo'];
   if(yourScore){$('statCards').replaceChildren(...[
     ['Your score',`${yourScore.score} / ${yourScore.maxScore}`],['Correct',yourScore.correct],['Incorrect',yourScore.wrong],['Accuracy',`${Math.round(100*yourScore.correct/Math.max(1,yourScore.correct+yourScore.wrong))}%`]
   ].map(([label,val])=>{const c=addText('div','stat-card','');c.append(addText('strong','',String(val)),addText('small','',label));return c;}));}
 }
-function renderReportSelector(){if(!S.myReport)return;const box=$('reportSelect');const prior=S.selectedReportUid||S.uid;box.replaceChildren();
-  const allowed=S.solo||S.isHost||(S.meta?.shareReports&&S.meta?.status==='finished');
-  const candidates=allowed?Object.keys(S.scores):[S.uid];
-  for(const uid of candidates){const opt=document.createElement('option');opt.value=uid;opt.textContent=roomName(uid);box.append(opt);}
-  S.selectedReportUid=candidates.includes(prior)?prior:S.uid;box.value=S.selectedReportUid;
-  box.parentElement.hidden=candidates.length<=1;
+function canViewCurrentRoomPeers(){
+  if(S.solo||!S.myReport||!S.ownSubmission||!S.scores?.[S.uid]||!S.meta?.shareReports)return false;
+  if(S.meta.status==='started')return true;
+  return S.meta.status==='finished' && Number(S.meta.finishedAt)>0 && serverNow()<=Number(S.meta.finishedAt)+86400000;
 }
-async function selectReport(){const uid=$('reportSelect').value;S.selectedReportUid=uid;
+function renderReportSelector(){
+  if(!S.myReport)return;
+  const box=$('reportSelect'),prior=S.selectedReportUid||S.uid;
+  box.replaceChildren();
+  const allowAll=S.solo||S.isHost||S.uid===ADMIN_UID||canViewCurrentRoomPeers();
+  const candidates=allowAll?Object.keys(S.scores||{}):[S.uid];
+  if(!candidates.includes(S.uid))candidates.unshift(S.uid);
+  for(const uid of candidates){
+    const opt=document.createElement('option');opt.value=uid;opt.textContent=roomName(uid);
+    box.append(opt);
+  }
+  S.selectedReportUid=candidates.includes(prior)?prior:S.uid;
+  box.value=S.selectedReportUid;
+  box.parentElement.hidden=candidates.length<=1;
+  $('reportSharingHint').textContent=S.solo?'Your solo report':
+    S.isHost||S.uid===ADMIN_UID?'Host view: all scored participants':
+    canViewCurrentRoomPeers()?'Open a scored participant to compare reports (available until 24 hours after the room finishes).':
+    'Other detailed reports are not shared for this room. Your own report remains available.';
+}
+async function selectReport(){const uid=$('reportSelect').value;
+  if(!S.solo&&uid!==S.uid&&!S.isHost&&S.uid!==ADMIN_UID&&!canViewCurrentRoomPeers())return;
+  S.selectedReportUid=uid;
   if(S.reportCache[uid]){renderReport(S.reportCache[uid]);return;}
-  try{const snap=await get(ref(S.db,`rooms/${S.room}/reports/${uid}`));if(snap.exists()){S.reportCache[uid]=snap.val();renderReport(snap.val());}}
-  catch(e){toast(errorMessage(e),true);S.selectedReportUid=S.uid;$('reportSelect').value=S.uid;renderReport(S.myReport);}
+  $('reportHeading').textContent='Loading '+roomName(uid)+' report…';
+  $('subjectBreakdown').replaceChildren();$('reportQuestions').replaceChildren();
+  try{const snap=await get(ref(S.db,`rooms/${S.room}/reports/${uid}`));
+    if(uid!==S.selectedReportUid)return;
+    if(snap.exists()){S.reportCache[uid]=snap.val();renderReport(snap.val());}
+    else $('reportHeading').textContent=roomName(uid)+' report not yet available';
+  }catch(e){toast(errorMessage(e),true);S.selectedReportUid=S.uid;$('reportSelect').value=S.uid;renderReport(S.myReport);}
 }
 function renderReport(report){if(!report)return;setText('reportHeading',`${roomName(S.selectedReportUid)}'s report`);
   const stats=$('subjectBreakdown');stats.replaceChildren();for(const [subject,data] of Object.entries(report.subjectStats||{})){
