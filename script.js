@@ -427,10 +427,22 @@ function renderExam(){if(!S.exam||!S.paper)return;const q=S.paper.questions[S.cu
 }
 function answerSet(v){return v!==null&&v!==undefined&&v!==''&&(!Array.isArray(v)||v.length>0);}
 function colorClass(i){const a=answerSet(S.exam.answers[i]),r=!!S.exam.review[i],v=!!S.exam.visited[i];return r?(a?'both':'review'):(a?'answer':(v?'notanswer':'unseen'));}
-function renderPalette(){if(!S.exam)return;const grid=$('paletteGrid');grid.replaceChildren();let done=0;let reviewed=0;
-  S.paper.questions.forEach((_,i)=>{const cl=colorClass(i);if(answerSet(S.exam.answers[i]))done++;if(S.exam.review[i])reviewed++;
-    const b=addText('button',`palette-q ${cl}${i===S.currentIdx?' current':''}`,String(i+1));b.type='button';b.title=`Question ${i+1} (${cl})`;b.onclick=()=>gotoQuestion(i);grid.append(b);});
-  setText('questionCounts',`${done} answered · ${S.paper.questions.length-done} unanswered · ${reviewed} review`);
+function renderPalette(){if(!S.exam||!S.paper)return;
+  const grid=$('paletteGrid');grid.replaceChildren();
+  const subject=S.paper.questions[S.currentIdx]?.subject||'General';
+  let done=0,sectionDone=0,sectionReview=0,sectionCount=0;
+  S.paper.questions.forEach((q,i)=>{
+    if(answerSet(S.exam.answers[i]))done++;
+    if((q.subject||'General')!==subject)return;
+    sectionCount++;
+    if(answerSet(S.exam.answers[i]))sectionDone++;
+    if(S.exam.review[i])sectionReview++;
+    const cl=colorClass(i);
+    const b=addText('button',`palette-q ${cl}${i===S.currentIdx?' current':''}`,String(i+1));
+    b.type='button';b.title=`${subject} · Question ${i+1} (${cl})`;b.onclick=()=>gotoQuestion(i);grid.append(b);
+  });
+  setText('paletteSection',`${subject} · ${sectionCount} questions`);
+  setText('questionCounts',`${subject}: ${sectionDone}/${sectionCount} answered · ${sectionReview} review | Total: ${done}/${S.paper.questions.length} answered`);
 }
 function gotoQuestion(i){if(!S.exam || i<0 || i>=S.paper.questions.length)return;S.currentIdx=i;markCurrentVisited();renderExam();}
 function elapsedSeconds(){const start=S.solo?S.soloStartedAt:S.meta?.startedAt;return Math.min(totalSeconds(),Math.max(0,Math.floor((serverNow()-Number(start))/1000)));}
