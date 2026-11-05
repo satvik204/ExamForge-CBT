@@ -17,10 +17,22 @@
   <script type="module" src="script.js"></script>
 </head>
 <body>
-  <div class="app-shell">
+  <section id="authGate" class="auth-gate" hidden aria-labelledby="identityLabel">
+  <div class="auth-panel"><span class="section-tag">WELCOME TO EXAMFORGE</span>
+    <h1 id="identityLabel">Choose how to enter ExamForge</h1>
+    <p>Both options can create rooms, join tests and practice solo. A Google account keeps a private report history across devices.</p>
+    <div class="auth-choices">
+      <button id="googleEntryBtn" class="btn btn-primary">Continue with Google</button>
+      <button id="guestEntryBtn" class="btn btn-outline">Continue as guest</button>
+    </div>
+    <p id="authGateStatus" class="auth-status" role="status">Connecting to Firebase…</p>
+    <p class="auth-fine">Guest mode has no saved account history. To keep a guest attempt, sign in with Google before taking the test. Admin controls are available only to the approved account.</p>
+  </div>
+</section>
+<div class="app-shell">
     <header class="topbar">
       <a href="./" class="brand" aria-label="ExamForge home"><span class="brand-mark">E<span>F</span></span><span>Exam<span>Forge</span><small>CBT ARENA</small></span></a>
-      <div class="top-actions"><span id="connectionBadge" class="connection-badge offline"><span class="status-dot"></span> Solo mode ready</span><a class="student-link" href="student.html">Student login &amp; reports</a><span class="top-label">MADE FOR STUDY SQUADS</span></div>
+      <div class="top-actions"><span id="accountName" class="account-label">Not signed in</span><a id="myReportsLink" class="student-link" href="student.html" hidden>My reports</a><a id="adminPanelLink" class="student-link" href="admin.html" hidden>Admin controls</a><button id="switchAccountBtn" class="btn btn-ghost account-switch" hidden>Switch account</button><span id="connectionBadge" class="connection-badge offline"><span class="status-dot"></span> Solo mode ready</span><span class="top-label">MADE FOR STUDY SQUADS</span></div>
     </header>
 
     <main>
