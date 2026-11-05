@@ -8,7 +8,7 @@
  */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInAnonymously, signInWithPopup, linkWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
-import { getDatabase, ref, get, set, update, onValue, push, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
+import { getDatabase, ref, get, set, update, onValue, push, serverTimestamp, onDisconnect } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 
 const FIREBASE_CONFIG = {
   apiKey: 'AIzaSyBXM3NXpwvZl8QlJbJPy37Swv5JVkzlwuw',
@@ -67,12 +67,19 @@ const DATABASE_RULES = {
         },
         "reports": {
           "$uid": {
-            ".read": "auth != null && (auth.uid === $uid || root.child('rooms/' + $room + '/meta/hostUid').val() === auth.uid || auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (root.child('rooms/' + $room + '/meta/shareReports').val() === true && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && root.child('rooms/' + $room + '/submissions/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + $uid).exists() && (root.child('rooms/' + $room + '/meta/status').val() === 'started' || (root.child('rooms/' + $room + '/meta/status').val() === 'finished' && root.child('rooms/' + $room + '/meta/finishedAt').isNumber() && now <= root.child('rooms/' + $room + '/meta/finishedAt').val() + 86400000))))",
+            ".read": "auth != null && (auth.uid === $uid || auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (root.child('rooms/' + $room + '/meta/shareReports').val() === true && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && root.child('rooms/' + $room + '/submissions/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + $uid).exists() && root.child('rooms/' + $room + '/resultSessions/' + auth.uid).val() === true))",
             ".write": "auth != null && root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid && root.child(\"rooms/\" + $room + \"/submissions/\" + $uid).exists()",
             ".validate": "newData.hasChildren([\"questions\", \"subjectStats\"])"
           }
         },
-        ".write": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' && !newData.exists()"
+        ".write": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' && !newData.exists()",
+        "resultSessions": {
+          "$uid": {
+            ".read": "auth != null && (auth.uid === $uid || auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE')",
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && ((!data.exists() && newData.val() === true && root.child('rooms/' + $room + '/submissions/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists()) || (data.val() === true && newData.val() === false))",
+            ".validate": "newData.isBoolean()"
+          }
+        }
       }
     },
     "studentHistory": {
@@ -107,7 +114,8 @@ const S = {
   myReport: null, isHost: false, ownSubmission: null,
   unsub: [], clock: null, exam: null, view: 'home', solo: false,
   selectedReportUid: '', reportCache: {}, busyScoring: new Set(),
-  syncing: false, toastTimer: null, lastRoomStatus: null
+  syncing: false, toastTimer: null, lastRoomStatus: null,
+  peerSessionKnown: false, peerSessionState: 'new', peerSessionRoom: null, peerSessionPromise: null
 };
 
 const DEMO_PACK = {
@@ -414,7 +422,7 @@ async function joinRoom(){
   }catch(e){toast(errorMessage(e),true);}finally{$('joinRoomBtn').disabled=false;}
 }
 async function enterRoom(room){
-  requireLive();clearRoomListeners();S.room=room;S.solo=false;S.exam=null;S.currentIdx=0;S.meta=null;S.paper=null;S.members={};S.scores={};S.messages={};S.myReport=null;S.ownSubmission=null;S.reportCache={};S.selectedReportUid=S.uid;S.lastRoomStatus=null;
+  requireLive();clearRoomListeners();S.room=room;S.solo=false;S.exam=null;S.currentIdx=0;S.meta=null;S.paper=null;S.members={};S.scores={};S.messages={};S.myReport=null;S.ownSubmission=null;S.reportCache={};S.selectedReportUid=S.uid;S.lastRoomStatus=null;S.peerSessionKnown=false;S.peerSessionState='new';S.peerSessionRoom=room;S.peerSessionPromise=null;
   const snap=await get(ref(S.db,`rooms/${room}/meta`));if(!snap.exists())throw Error('Room not found.');
   S.meta=snap.val();S.isHost=S.meta.hostUid===S.uid;
   if(S.isHost && !S.pack){try{S.pack=normalizePack(JSON.parse(localStorage.getItem(`ef-host-paper:${room}`)||'null'));}catch{}}
@@ -425,6 +433,19 @@ async function enterRoom(room){
   watch(`rooms/${room}/messages`,data=>{S.messages=data||{};renderMessages();});
   watch(`rooms/${room}/scores`,data=>{S.scores=data||{};renderLeaderboard();if(S.myReport){renderReportSelector();archiveMyRoomReport().catch(e=>console.warn('Student history sync pending:',e));}if(S.isHost)maybeFinishRoom();});
   watch(`rooms/${room}/submissions/${S.uid}`,data=>{S.ownSubmission=data;if(data){if(S.exam)S.exam.submitted=true;applyRoomStatus();}});
+  watch(`rooms/${room}/resultSessions/${S.uid}`,data=>{
+    if(S.room!==room)return;
+    S.peerSessionKnown=true;
+    if(data===true){S.peerSessionState='active';}
+    else if(data===false){
+      S.peerSessionState='closed';
+      discardPeerReportCache();
+    }
+    if(S.view==='results' && S.myReport){
+      renderReportSelector();renderLeaderboard();
+    }
+    if(data===null && S.view==='results' && S.myReport && S.scores?.[S.uid])ensurePeerSession().catch(e=>toast('Report sharing: '+errorMessage(e),true));
+  });
   watch(`rooms/${room}/reports/${S.uid}`,data=>{S.myReport=data;S.reportCache[S.uid]=data;if(data){applyRoomStatus();renderReportSelector();archiveMyRoomReport().catch(e=>console.warn('Student history sync pending:',e));}});
   if(S.isHost){
     watch(`rooms/${room}/submissions`,data=>{scoreIncoming(data||{}).catch(e=>toast(`Scoring error: ${errorMessage(e)}`,true));});
@@ -614,6 +635,8 @@ function renderResults(){
   $('waitingResults').hidden=ready;
   $('resultsContent').hidden=!ready;
   if(!ready){const w=$('waitingResults');w.querySelector('h2').textContent=S.meta?.status==='finished'&&!S.ownSubmission?'Room closed':'Paper submitted!';w.querySelector('p').textContent=S.meta?.status==='finished'&&!S.ownSubmission?'Your answers were not submitted before the room closed. Contact the host.':'Waiting for the host browser to calculate your score. Keep the host tab open.';return;}
+  if(!S.solo&&S.peerSessionKnown&&S.peerSessionState==='new'&&S.scores?.[S.uid])
+    ensurePeerSession().catch(e=>toast('Report sharing: '+errorMessage(e),true));
   renderLeaderboard();renderReportSelector();renderReport(S.reportCache[S.selectedReportUid]||S.myReport);
 }
 function orderedLeaderboard(){return Object.entries(S.scores||{}).sort((a,b)=>(b[1].score-a[1].score)||(b[1].correct-a[1].correct)||(a[1].elapsedSeconds-b[1].elapsedSeconds));}
@@ -622,7 +645,7 @@ function renderLeaderboard(){if(S.view!=='results'||!S.myReport)return;const boa
     const entry=addText('div','leader-row','');entry.append(addText('span','rank',`#${idx+1}`));
     const box=addText('div','','');box.append(addText('strong','',`${roomName(uid)}${uid===S.uid?' (you)':''}`),addText('small','',`${score.correct} correct · ${score.wrong} wrong · ${formatTime(score.elapsedSeconds)} used`));
     entry.append(box,addText('span','points',`${score.score} / ${score.maxScore}`));
-    if(!S.solo&&(uid===S.uid||S.isHost||S.uid===ADMIN_UID||canViewCurrentRoomPeers())){
+    if(!S.solo&&(uid===S.uid||S.uid===ADMIN_UID||canViewCurrentRoomPeers())){
       entry.classList.add('leader-selectable');entry.title='View '+roomName(uid)+' report';entry.tabIndex=0;entry.setAttribute('role','button');
       const open=()=>{const selector=$('reportSelect');if([...selector.options].some(o=>o.value===uid)){selector.value=uid;selectReport();}};
       entry.addEventListener('click',open);entry.addEventListener('keydown',ev=>{if(ev.key==='Enter'||ev.key===' '){ev.preventDefault();open();}});
@@ -634,16 +657,69 @@ function renderLeaderboard(){if(S.view!=='results'||!S.myReport)return;const boa
     ['Your score',`${yourScore.score} / ${yourScore.maxScore}`],['Correct',yourScore.correct],['Incorrect',yourScore.wrong],['Accuracy',`${Math.round(100*yourScore.correct/Math.max(1,yourScore.correct+yourScore.wrong))}%`]
   ].map(([label,val])=>{const c=addText('div','stat-card','');c.append(addText('strong','',String(val)),addText('small','',label));return c;}));}
 }
+function discardPeerReportCache(){
+  if(!S.uid)return;
+  for(const uid of Object.keys(S.reportCache||{}))if(uid!==S.uid)delete S.reportCache[uid];
+  S.selectedReportUid=S.uid;
+  if(S.view==='results'&&S.myReport){
+    renderReportSelector();
+    renderReport(S.myReport);
+  }
+}
+// A participant's peer-report session may be opened only once, after they submit
+// and are scored. Firebase rules reject any attempt to reopen after it is closed.
+async function ensurePeerSession(){
+  if(S.solo||!S.room||!S.myReport||!S.ownSubmission||!S.scores?.[S.uid]||!S.meta?.shareReports||!S.peerSessionKnown||S.peerSessionState!=='new'||S.peerSessionPromise)return;
+  const room=S.room,uid=S.uid;
+  S.peerSessionState='opening';
+  const path=ref(S.db,`rooms/${room}/resultSessions/${uid}`);
+  S.peerSessionPromise=(async()=>{
+    try{
+      await set(path,true);
+      await onDisconnect(path).set(false);
+      if(S.room!==room||S.uid!==uid||S.view!=='results'){
+        await set(path,false);
+        S.peerSessionState='closed';
+        discardPeerReportCache();
+        return;
+      }
+      S.peerSessionState='active';
+      renderReportSelector();renderLeaderboard();
+    }catch(e){
+      // Fail closed if the disconnection safeguard cannot be registered.
+      try{await set(path,false);}catch{}
+      S.peerSessionState='closed';
+      discardPeerReportCache();
+      throw e;
+    }finally{S.peerSessionPromise=null;}
+  })();
+  return S.peerSessionPromise;
+}
 function canViewCurrentRoomPeers(){
-  if(S.solo||!S.myReport||!S.ownSubmission||!S.scores?.[S.uid]||!S.meta?.shareReports)return false;
-  if(S.meta.status==='started')return true;
-  return S.meta.status==='finished' && Number(S.meta.finishedAt)>0 && serverNow()<=Number(S.meta.finishedAt)+86400000;
+  return !S.solo && !!S.myReport && !!S.ownSubmission && !!S.scores?.[S.uid] &&
+    !!S.meta?.shareReports && S.peerSessionState==='active' && S.view==='results';
+}
+async function exitResults(){
+  const room=S.room,uid=S.uid;
+  if(room && S.peerSessionState==='opening' && S.peerSessionPromise){
+    try{await S.peerSessionPromise;}catch{}
+  }
+  if(room && S.peerSessionState==='active'){
+    try{await set(ref(S.db,`rooms/${room}/resultSessions/${uid}`),false);}
+    catch(e){
+      toast('Could not close results sharing. Try Exit again, or close this browser tab to trigger automatic revocation: '+errorMessage(e),true);
+      return;
+    }
+  }
+  S.peerSessionState='closed';
+  discardPeerReportCache();
+  home();
 }
 function renderReportSelector(){
   if(!S.myReport)return;
   const box=$('reportSelect'),prior=S.selectedReportUid||S.uid;
   box.replaceChildren();
-  const allowAll=S.solo||S.isHost||S.uid===ADMIN_UID||canViewCurrentRoomPeers();
+  const allowAll=S.solo||S.uid===ADMIN_UID||canViewCurrentRoomPeers();
   const candidates=allowAll?Object.keys(S.scores||{}):[S.uid];
   if(!candidates.includes(S.uid))candidates.unshift(S.uid);
   for(const uid of candidates){
@@ -654,12 +730,12 @@ function renderReportSelector(){
   box.value=S.selectedReportUid;
   box.parentElement.hidden=candidates.length<=1;
   $('reportSharingHint').textContent=S.solo?'Your solo report':
-    S.isHost||S.uid===ADMIN_UID?'Host view: all scored participants':
-    canViewCurrentRoomPeers()?'Open a scored participant to compare reports (available until 24 hours after the room finishes).':
+    S.uid===ADMIN_UID?'Admin view: all scored participants':
+    canViewCurrentRoomPeers()?'Open a scored participant to compare reports. Peer access ends permanently when you exit these results or disconnect.':
     'Other detailed reports are not shared for this room. Your own report remains available.';
 }
 async function selectReport(){const uid=$('reportSelect').value;
-  if(!S.solo&&uid!==S.uid&&!S.isHost&&S.uid!==ADMIN_UID&&!canViewCurrentRoomPeers())return;
+  if(!S.solo&&uid!==S.uid&&S.uid!==ADMIN_UID&&!canViewCurrentRoomPeers())return;
   S.selectedReportUid=uid;
   if(S.reportCache[uid]){renderReport(S.reportCache[uid]);return;}
   $('reportHeading').textContent='Loading '+roomName(uid)+' report…';
@@ -704,7 +780,7 @@ $('saveNextBtn').addEventListener('click',()=>gotoQuestion(Math.min(S.currentIdx
 $('reviewBtn').addEventListener('click',()=>{if(!S.exam)return;S.exam.review[S.currentIdx]=!S.exam.review[S.currentIdx];saveAttempt();renderExam();});
 $('clearAnswerBtn').addEventListener('click',()=>{if(!S.exam)return;S.exam.answers[S.currentIdx]=null;saveAttempt();renderExam();});
 $('submitBtn').addEventListener('click',()=>finalizeSubmission().catch(e=>toast(errorMessage(e),true)));
-$('resultsHomeBtn').addEventListener('click',home);
+$('resultsHomeBtn').addEventListener('click',exitResults);
 $('reportSelect').addEventListener('change',selectReport);
 
 
