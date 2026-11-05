@@ -1,6 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInAnonymously, linkWithPopup, signInWithPopup, signOut } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
-import { getDatabase, ref, get } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
+import { getAuth, GoogleAuthProvider, onAuthStateChanged, linkWithPopup, signInWithPopup, signOut, reauthenticateWithPopup, deleteUser } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
+import { getDatabase, ref, get, remove } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 
 const firebaseConfig={
   apiKey:'AIzaSyBXM3NXpwvZl8QlJbJPy37Swv5JVkzlwuw',
@@ -18,11 +18,9 @@ const element=(tag,text,cls)=>{const e=document.createElement(tag);if(cls)e.clas
 function status(msg,err=false){const e=$('studentStatus');e.textContent=msg;e.className='status'+(err?' error':'');}
 async function googleLogin(){
   try{
-    if(!auth.currentUser)await signInAnonymously(auth);
     const user=auth.currentUser;
-    if(user.isAnonymous)await linkWithPopup(user,new GoogleAuthProvider());
-    else if(!user.providerData.some(p=>p.providerId==='google.com'))await signInWithPopup(auth,new GoogleAuthProvider());
-    else status('Already signed in with Google.');
+    if(user?.isAnonymous)await linkWithPopup(user,new GoogleAuthProvider());
+    else await signInWithPopup(auth,new GoogleAuthProvider());
   }catch(e){
     const code=e?.code||'';
     if(code==='auth/credential-already-in-use'||code==='auth/email-already-in-use'){
@@ -33,7 +31,20 @@ async function googleLogin(){
 }
 $('googleLoginBtn').addEventListener('click',googleLogin);
 $('existingLoginBtn').addEventListener('click',async()=>{try{await signInWithPopup(auth,new GoogleAuthProvider());$('existingLoginBtn').hidden=true;}catch(e){status('Existing account sign-in failed: '+safe(e?.message||e),true);}});
-$('signoutBtn').addEventListener('click',async()=>{try{await signOut(auth);await signInAnonymously(auth);}catch(e){status('Sign-out failed: '+safe(e?.message||e),true);}});
+$('signoutBtn').addEventListener('click',async()=>{try{await signOut(auth);}catch(e){status('Sign-out failed: '+safe(e?.message||e),true);}});
+$('deleteAccountBtn').addEventListener('click',async()=>{
+  const u=auth.currentUser;
+  if(!u||u.isAnonymous)return;
+  if(!confirm('Delete your ExamForge Google-linked account and private saved report history? Live-room records will remain with the organizer. This cannot be undone.'))return;
+  if(prompt('Type DELETE to confirm account deletion')!=='DELETE')return;
+  try{
+    await reauthenticateWithPopup(u,new GoogleAuthProvider());
+    await remove(ref(db,'studentHistory/'+u.uid));
+    await remove(ref(db,'soloHistory/'+u.uid));
+    await deleteUser(u);
+    rows=[];$('dashboard').hidden=true;status('Account and personal history deleted. Live-room records remain for room integrity.');
+  }catch(e){status('Deletion could not be completed: '+safe(e?.message||e)+'. Personal history may have been partially deleted. Contact the site administrator if you need assistance.',true);}
+});
 $('refreshBtn').addEventListener('click',refresh);
 $('searchInput').addEventListener('input',render);
 $('typeSelect').addEventListener('change',render);
@@ -43,7 +54,7 @@ onAuthStateChanged(auth,async user=>{
   $('studentAccount').textContent=user?.email||(user?'Guest (anonymous)':'Not signed in');
   $('googleLoginBtn').hidden=!!user&&!user.isAnonymous&&user.providerData.some(p=>p.providerId==='google.com');
   $('signoutBtn').hidden=!user||user.isAnonymous;
-  if(!user){$('dashboard').hidden=true;try{await signInAnonymously(auth);}catch(e){status('Anonymous authentication unavailable: '+safe(e?.message||e),true);}return;}
+  if(!user){$('dashboard').hidden=true;status('Sign in with Google to see your saved test reports, or return to ExamForge to continue as a guest.');return;}
   if(user.isAnonymous){$('dashboard').hidden=true;status('Guest session detected. Choose Continue with Google to link this session and keep its reports, or return to the original test room to view your existing score.');return;}
   await refresh();
 });
