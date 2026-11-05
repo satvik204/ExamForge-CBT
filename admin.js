@@ -1,5 +1,5 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import { getDatabase, ref, get, update, remove } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 
 const FIREBASE_CONFIG = {
@@ -9,7 +9,7 @@ const FIREBASE_CONFIG = {
   "projectId": "examforge-bbb80",
   "appId": "1:1082015886102:web:66d9e8cf23c50c044f3e37"
 };
-const app=initializeApp(FIREBASE_CONFIG,'ExamForgePrivateAdmin');
+const app=initializeApp(FIREBASE_CONFIG);
 const auth=getAuth(app), db=getDatabase(app);
 const $=id=>document.getElementById(id);
 let allRows=[], filteredRows=[], currentUser=null, loading=false, roomRecords={};
@@ -59,7 +59,7 @@ async function refresh(){
   }catch(e){
     $('dashboard').hidden=true;
     const m=String(e?.code||e?.message||e);
-    if(/permission_denied|PERMISSION_DENIED|Permission denied/i.test(m))setStatus('Access denied. Copy the Firebase UID shown above, replace the placeholder in FIREBASE_SETUP/FIREBASE_DATABASE_RULES_ADMIN.json, and publish those rules in Firebase → Realtime Database → Rules. Then click Refresh.',true);
+    if(/permission_denied|PERMISSION_DENIED|Permission denied/i.test(m))setStatus('Access denied. Publish the latest FIREBASE_RULES_STUDENT_HISTORY.json file from GitHub in Firebase → Realtime Database → Rules. Then click Refresh.',true);
     else setStatus('Unable to load history: '+m,true);
   }finally{loading=false;$('refreshBtn').disabled=false;}
 }
@@ -138,7 +138,7 @@ const url = URL.createObjectURL(
 );
   const a=document.createElement('a');a.href=url;a.download='ExamForge_Private_History_'+new Date().toISOString().slice(0,10)+'.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
-$('googleBtn').addEventListener('click',async()=>{try{await setPersistence(auth,browserSessionPersistence);await signInWithPopup(auth,new GoogleAuthProvider());}catch(e){setStatus('Google sign-in failed: '+String(e?.message||e),true);}});
+$('googleBtn').addEventListener('click',async()=>{try{await signInWithPopup(auth,new GoogleAuthProvider());}catch(e){setStatus('Google sign-in failed: '+String(e?.message||e),true);}});
 $('signoutBtn').addEventListener('click',()=>signOut(auth));
 $('copyUidBtn').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(currentUser.uid);setStatus('UID copied. Paste it into the Firebase rules placeholder and Publish.');}catch(e){setStatus('Could not copy UID. Select it manually.',true);}});
 $('refreshBtn').addEventListener('click',refresh);
