@@ -1,6 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
-import { getDatabase, ref, get } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
+import { getDatabase, ref, get, update, remove } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 
 const FIREBASE_CONFIG = {
   "apiKey": "AIzaSyBXM3NXpwvZl8QlJbJPy37Swv5JVkzlwuw",
@@ -12,7 +12,8 @@ const FIREBASE_CONFIG = {
 const app=initializeApp(FIREBASE_CONFIG,'ExamForgePrivateAdmin');
 const auth=getAuth(app), db=getDatabase(app);
 const $=id=>document.getElementById(id);
-let allRows=[], filteredRows=[], currentUser=null, loading=false;
+let allRows=[], filteredRows=[], currentUser=null, loading=false, roomRecords={};
+const ADMIN_UID='aDoKGJYtSddgooKQDwdcGGefeiv1';
 const fmtDate=n=>{const x=Number(n);return x?new Date(x).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}):'—';};
 const safeTxt=(value)=>String(value??'');
 function setStatus(msg,error=false){const el=$('authStatus');el.textContent=msg;el.className='status '+(error?'error':'ok');}
@@ -45,6 +46,8 @@ async function refresh(){
     // Only the approved Firebase UID can read either database root below.
     const [roomsSnap,soloSnap]=await Promise.all([get(ref(db,'rooms')),get(ref(db,'soloHistory'))]);
     const rooms=roomsSnap.val()||{},solo=soloSnap.val()||{};
+    roomRecords=rooms;
+    renderRoomManager();
     allRows=[...roomRows(rooms),...soloRows(solo)].sort((a,b)=>b.createdAt-a.createdAt);
     $('dashboard').hidden=false;
     $('roomCount').textContent=Object.keys(rooms).length;
@@ -59,6 +62,32 @@ async function refresh(){
     if(/permission_denied|PERMISSION_DENIED|Permission denied/i.test(m))setStatus('Access denied. Copy the Firebase UID shown above, replace the placeholder in FIREBASE_SETUP/FIREBASE_DATABASE_RULES_ADMIN.json, and publish those rules in Firebase → Realtime Database → Rules. Then click Refresh.',true);
     else setStatus('Unable to load history: '+m,true);
   }finally{loading=false;$('refreshBtn').disabled=false;}
+}
+function renderRoomManager(){
+  const body=$('roomManagerRows');body.replaceChildren();
+  const rooms=Object.entries(roomRecords).sort((a,b)=>(b[1]?.meta?.createdAt||0)-(a[1]?.meta?.createdAt||0));
+  if(!rooms.length){const tr=el('tr');const td=el('td','No live rooms saved.');td.colSpan=6;tr.append(td);body.append(tr);return;}
+  for(const [code,room] of rooms){
+    const tr=el('tr');
+    for(const value of [code,room?.meta?.title||'Untitled',room?.meta?.status||'unknown',Object.keys(room?.members||{}).length,Object.keys(room?.scores||{}).length])tr.append(el('td',value));
+    const actions=el('td'),finish=el('button','Finish','mini-button'),del=el('button','Delete','mini-button');
+    finish.disabled=room?.meta?.status!=='started';
+    finish.addEventListener('click',async()=>{
+      if(currentUser?.uid!==ADMIN_UID)return;
+      if(!confirm('Finish room '+code+' now? Students who have not submitted will no longer be able to submit.'))return;
+      try{await update(ref(db,'rooms/'+code+'/meta'),{status:'finished',finishedAt:Date.now()});setStatus('Room '+code+' marked finished.');await refresh();}
+      catch(e){setStatus('Could not finish room: '+String(e?.message||e),true);}
+    });
+    del.addEventListener('click',async()=>{
+      if(currentUser?.uid!==ADMIN_UID)return;
+      if(!confirm('PERMANENTLY delete room '+code+' and all its saved submissions, scores, reports and chat? This cannot be undone.'))return;
+      const confirmCode=prompt('Type the room code '+code+' to confirm deletion.');
+      if(confirmCode!==code)return;
+      try{await remove(ref(db,'rooms/'+code));setStatus('Deleted room '+code+'.');await refresh();}
+      catch(e){setStatus('Could not delete room: '+String(e?.message||e),true);}
+    });
+    actions.append(finish,document.createTextNode(' '),del);tr.append(actions);body.append(tr);
+  }
 }
 function applyFilters(){
   const term=$('searchInput').value.toLowerCase().trim(),type=$('typeSelect').value, status=$('statusSelect').value;
