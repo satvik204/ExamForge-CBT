@@ -7,7 +7,7 @@
  * scores submissions and must remain connected while friends finish.
  */
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
+import { getAuth, GoogleAuthProvider, signInAnonymously, signInWithPopup, linkWithPopup, signOut, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js';
 import { getDatabase, ref, get, set, update, onValue, push, serverTimestamp } from 'https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js';
 
 const FIREBASE_CONFIG = {
@@ -236,26 +236,86 @@ function clearRoomListeners(){for(const fn of S.unsub)try{fn();}catch{}S.unsub=[
 function watch(path,callback){const f=onValue(ref(S.db,path), snap=>callback(snap.val()), err=>toast(`Live connection: ${errorMessage(err)}`,true));S.unsub.push(f);return f;}
 function badge(message,connected){const el=$('connectionBadge');el.innerHTML='';const dot=addText('span','status-dot','');el.append(dot,document.createTextNode(message));el.classList.toggle('offline',!connected);}
 function configReady(){return FIREBASE_CONFIG.apiKey && !Object.values(FIREBASE_CONFIG).some(v=>String(v).startsWith('PASTE_')||String(v).includes('PASTE_'));}
+const ADMIN_UID='aDoKGJYtSddgooKQDwdcGGefeiv1';
+let identityReady=false,clockReady=false;
+function isGoogleUser(){return !!S.auth?.currentUser?.providerData?.some(p=>p.providerId==='google.com');}
+function authNote(message,bad=false){const e=$('authGateStatus');e.textContent=message;e.classList.toggle('error',bad);}
+function presentIdentityGate(){
+  $('authGate').hidden=false;
+  document.body.classList.add('auth-locked');
+  $('identityLabel').textContent='Choose how to enter ExamForge';
+  authNote(S.auth?.currentUser?.isAnonymous?'Existing guest session detected. You may continue as guest or link this identity to Google.':'Google accounts keep their personal test history. Guests can take tests but do not have saved account history.');
+}
+async function finishIdentity(){
+  const user=S.auth?.currentUser;
+  if(!user)return;
+  if(identityReady && S.uid===user.uid)return;
+  S.uid=user.uid;identityReady=true;
+  $('authGate').hidden=true;document.body.classList.remove('auth-locked');
+  const google=isGoogleUser();
+  $('accountName').textContent=google?(user.email||'Google student'):'Guest';
+  $('myReportsLink').hidden=!google;
+  $('adminPanelLink').hidden=!(google&&S.uid===ADMIN_UID);
+  $('switchAccountBtn').hidden=false;
+  badge(google?'Google account connected':'Guest · live rooms ready',true);
+  if(!clockReady){watchServerClock();clockReady=true;}
+  if(google)flushPendingSoloHistory().catch(()=>{});
+  const fromUrl=new URLSearchParams(location.search).get('room');
+  if(fromUrl){
+    const code=fromUrl.toUpperCase();
+    $('joinCodeInput').value=code;
+    try{
+      const existing=await get(ref(S.db,`rooms/${code}/meta`));
+      if(existing.exists()){
+        const member=await get(ref(S.db,`rooms/${code}/members/${S.uid}`));
+        if(member.exists())await enterRoom(code);
+        else toast('Invite detected! Enter your name and click Join room.');
+      }else toast('Room not found. Double-check your invite.',true);
+    }catch(e){toast(errorMessage(e),true);}
+  }
+}
 async function connectFirebase(){
-  if(!configReady()){badge('Configure Firebase for live rooms',false);return;}
+  if(!configReady()){badge('Configure Firebase for live rooms',false);presentIdentityGate();authNote('Firebase configuration is missing.',true);return;}
   try{
     S.app=initializeApp(FIREBASE_CONFIG);S.auth=getAuth(S.app);S.db=getDatabase(S.app);
-    await new Promise((resolve,reject)=>{const un=onAuthStateChanged(S.auth,u=>{un();resolve(u);},e=>{un();reject(e);});});
-    if(!S.auth.currentUser) await signInAnonymously(S.auth);
-    S.uid=S.auth.currentUser.uid;
-    flushPendingSoloHistory().catch(()=>{});
-    badge('Live rooms connected',true);
-    watchServerClock();
-    const fromUrl=new URLSearchParams(location.search).get('room');
-    if(fromUrl){$('joinCodeInput').value=fromUrl.toUpperCase();const existing=await get(ref(S.db,`rooms/${fromUrl.toUpperCase()}/meta`));
-      if(existing.exists()){
-        const member=await get(ref(S.db,`rooms/${fromUrl.toUpperCase()}/members/${S.uid}`));
-        if(member.exists()){try{await enterRoom(fromUrl.toUpperCase());}catch(e){toast(errorMessage(e),true);}}
-        else {toast('Invite detected! Enter your name and click Join room.');$('joinCodeInput').scrollIntoView({behavior:'smooth'});}
-      } else toast('Room not found. Double-check the invite link.',true);
-    }
-  }catch(e){badge('Firebase connection failed',false);toast(errorMessage(e),true);}
+    await new Promise((resolve,reject)=>{const unsub=onAuthStateChanged(S.auth,u=>{unsub();resolve(u);},reject);});
+    if(S.auth.currentUser && !S.auth.currentUser.isAnonymous)await finishIdentity();
+    else presentIdentityGate();
+  }catch(e){badge('Firebase connection failed',false);presentIdentityGate();authNote(errorMessage(e),true);}
 }
+$('guestEntryBtn').addEventListener('click',async()=>{
+  try{
+    $('guestEntryBtn').disabled=true;
+    if(!S.auth.currentUser)await signInAnonymously(S.auth);
+    if(!S.auth.currentUser.isAnonymous){authNote('You are already signed in with Google. Use Switch account to leave that account.',true);return;}
+    await finishIdentity();
+  }catch(e){authNote('Guest sign-in failed: '+errorMessage(e),true);}
+  finally{$('guestEntryBtn').disabled=false;}
+});
+$('googleEntryBtn').addEventListener('click',async()=>{
+  try{
+    $('googleEntryBtn').disabled=true;
+    if(S.auth.currentUser?.isAnonymous){
+      try{await linkWithPopup(S.auth.currentUser,new GoogleAuthProvider());}
+      catch(e){
+        if(e.code==='auth/credential-already-in-use'||e.code==='auth/email-already-in-use'){
+          authNote('This Google account already exists. Sign in to that account; old guest results cannot automatically transfer to it.');
+          await signInWithPopup(S.auth,new GoogleAuthProvider());
+        }else throw e;
+      }
+    }else await signInWithPopup(S.auth,new GoogleAuthProvider());
+    identityReady=false;await finishIdentity();
+  }catch(e){authNote('Google sign-in failed: '+String(e?.message||e),true);}
+  finally{$('googleEntryBtn').disabled=false;}
+});
+$('switchAccountBtn').addEventListener('click',async()=>{
+  if(S.view==='exam'&&!confirm('Leave this active test? Your unsent answers remain on this device.'))return;
+  if(S.room)home();
+  identityReady=false;S.uid=null;
+  try{await signOut(S.auth);presentIdentityGate();}
+  catch(e){toast('Sign-out failed: '+errorMessage(e),true);}
+});
+
 function watchServerClock(){onValue(ref(S.db,'.info/serverTimeOffset'),s=>{S.offset=Number(s.val())||0;});}
 
 // Admin history: solo reports are private to the student and the approved Firebase admin.
@@ -352,7 +412,7 @@ async function enterRoom(room){
   }
 }
 async function archiveMyRoomReport(){
-  if(!S.db||!S.uid||!S.room||!S.myReport)return;
+  if(!S.db||!S.uid||!S.room||!S.myReport||!isGoogleUser())return;
   const score=S.scores?.[S.uid]||((await get(ref(S.db,`rooms/${S.room}/scores/${S.uid}`))).val());
   if(!score)return;
   await set(ref(S.db,`studentHistory/${S.uid}/${S.room}`),{
@@ -473,7 +533,7 @@ async function finalizeSubmission(auto=false){
   S.syncing=true;
   try{
     if(S.solo){S.exam.submitted=true;clearExamClock();const submission={answers:answersForTransport(),elapsedSeconds:elapsedSeconds(),submittedAt:Date.now()};
-      const {score,report}=grade(S.pack,submission);S.scores={[S.uid||'solo']:score};S.myReport=report;S.reportCache={[S.uid||'solo']:report};S.members={[S.uid||'solo']:{name:displayName()||'You'}};addPendingSoloHistory(score,report);renderResults();toast('Submitted! Your score is ready.');return;}
+      const {score,report}=grade(S.pack,submission);S.scores={[S.uid||'solo']:score};S.myReport=report;S.reportCache={[S.uid||'solo']:report};S.members={[S.uid||'solo']:{name:displayName()||'You'}};if(isGoogleUser())addPendingSoloHistory(score,report);renderResults();toast('Submitted! Your score is ready.');return;}
     if(S.meta?.status!=='started')throw Error('This room is no longer accepting submissions.');
     const submission={answers:answersForTransport(),elapsedSeconds:elapsedSeconds(),submittedAt:serverTimestamp()};
     await set(ref(S.db,`rooms/${S.room}/submissions/${S.uid}`),submission);
