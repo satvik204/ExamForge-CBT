@@ -51,6 +51,7 @@ const DATABASE_RULES = {
           }
         },
         submissions: {
+          '.read': 'auth != null && root.child("rooms/" + $room + "/meta/hostUid").val() === auth.uid',
           '$uid': {
             '.read': 'auth != null && (auth.uid === $uid || root.child("rooms/" + $room + "/meta/hostUid").val() === auth.uid)',
             '.write': 'auth != null && auth.uid === $uid && !data.exists() && root.child("rooms/" + $room + "/members/" + auth.uid).exists() && root.child("rooms/" + $room + "/meta/status").val() === "started"',
@@ -73,13 +74,22 @@ const DATABASE_RULES = {
         }
       }
     },
+    studentHistory: {
+      '$uid': {
+        '.read': 'auth != null && auth.uid === $uid',
+        '$room': {
+          '.write': 'auth != null && auth.uid === $uid && newData.exists()',
+          '.validate': 'newData.hasChildren(["uid", "room", "title", "name", "createdAt", "score", "report"]) && newData.child("uid").val() === auth.uid && newData.child("room").val() === $room && newData.child("title").isString() && newData.child("title").val().length <= 150 && newData.child("score/score").isNumber() && newData.child("report/questions").exists()'
+        }
+      }
+    },
     soloHistory: {
       '.read': 'auth != null && auth.uid === "PASTE_YOUR_GOOGLE_AUTH_UID_HERE"',
       '$uid': {
         '.read': 'auth != null && auth.uid === $uid',
         '$attempt': {
           '.write': 'auth != null && auth.uid === $uid && !data.exists() && newData.exists()',
-          '.validate': 'newData.hasChildren(["uid", "name", "title", "createdAt", "clientCreatedAt", "score", "report"]) && newData.child("uid").val() === auth.uid && newData.child("name").isString() && newData.child("name").val().length <= 30 && newData.child("title").isString() && newData.child("title").val().length <= 150 && newData.child("createdAt").isNumber() && newData.child("clientCreatedAt").isNumber() && newData.child("score/score").isNumber() && newData.child("score/maxScore").isNumber() && newData.child("report/questions").numChildren() <= 300'
+          '.validate': 'newData.hasChildren(["uid", "name", "title", "createdAt", "clientCreatedAt", "score", "report"]) && newData.child("uid").val() === auth.uid && newData.child("name").isString() && newData.child("name").val().length <= 30 && newData.child("title").isString() && newData.child("title").val().length <= 150 && newData.child("createdAt").isNumber() && newData.child("clientCreatedAt").isNumber() && newData.child("score/score").isNumber() && newData.child("score/maxScore").isNumber()'
         }
       }
     }
@@ -334,12 +344,22 @@ async function enterRoom(room){
   watch(`rooms/${room}/paper`,data=>{S.paper=data;if(S.meta)applyRoomStatus();});
   watch(`rooms/${room}/members`,data=>{S.members=data||{};renderMembers();renderLeaderboard();if(S.isHost){maybeFinishRoom();get(ref(S.db,`rooms/${room}/submissions`)).then(s=>scoreIncoming(s.val()||{})).catch(e=>toast(errorMessage(e),true));}});
   watch(`rooms/${room}/messages`,data=>{S.messages=data||{};renderMessages();});
-  watch(`rooms/${room}/scores`,data=>{S.scores=data||{};renderLeaderboard();if(S.isHost)maybeFinishRoom();});
+  watch(`rooms/${room}/scores`,data=>{S.scores=data||{};renderLeaderboard();if(S.myReport)archiveMyRoomReport().catch(e=>console.warn('Student history sync pending:',e));if(S.isHost)maybeFinishRoom();});
   watch(`rooms/${room}/submissions/${S.uid}`,data=>{S.ownSubmission=data;if(data){if(S.exam)S.exam.submitted=true;applyRoomStatus();}});
-  watch(`rooms/${room}/reports/${S.uid}`,data=>{S.myReport=data;S.reportCache[S.uid]=data;if(data)applyRoomStatus();});
+  watch(`rooms/${room}/reports/${S.uid}`,data=>{S.myReport=data;S.reportCache[S.uid]=data;if(data){applyRoomStatus();archiveMyRoomReport().catch(e=>console.warn('Student history sync pending:',e));}});
   if(S.isHost){
     watch(`rooms/${room}/submissions`,data=>{scoreIncoming(data||{}).catch(e=>toast(`Scoring error: ${errorMessage(e)}`,true));});
   }
+}
+async function archiveMyRoomReport(){
+  if(!S.db||!S.uid||!S.room||!S.myReport)return;
+  const score=S.scores?.[S.uid]||((await get(ref(S.db,`rooms/${S.room}/scores/${S.uid}`))).val());
+  if(!score)return;
+  await set(ref(S.db,`studentHistory/${S.uid}/${S.room}`),{
+    uid:S.uid,room:S.room,title:S.meta?.title||'Live CBT',
+    name:S.members?.[S.uid]?.name||displayName()||'Student',
+    createdAt:Number(score.submittedAt)||Date.now(),score,report:S.myReport
+  });
 }
 function renderRoomHeader(){if(!S.meta)return;setText('roomTitle',S.meta.title);setText('roomStatusTag',S.meta.status==='lobby'?'Lobby':S.meta.status==='started'?'In progress':'Finished');setText('roomCountTag',`${Object.keys(S.members).length} member(s)`);setText('hostHint',S.isHost?'You are the host. Keep this tab open until results are calculated.':'Waiting for the host to start the exam.');}
 function renderMembers(){if(!S.room)return;const list=$('memberList');list.replaceChildren();const entries=Object.entries(S.members||{});
