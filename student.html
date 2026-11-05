@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>ExamForge · My Reports</title>
+<link rel="stylesheet" href="admin.css"><link rel="stylesheet" href="student.css">
+<script type="module" src="student.js?v=1"></script>
+</head>
+<body><div class="layout">
+<header class="topbar">
+<div><a class="back" href="index.html">← Back to ExamForge</a><div class="brand"><span class="logo">EF</span><div><strong>ExamForge Student</strong><small>Personal score &amp; report history</small></div></div></div>
+<div class="signin"><span id="studentAccount" class="muted">Checking account…</span><button id="googleLoginBtn">Continue with Google</button><button id="existingLoginBtn" class="outline" hidden>Use existing Google account</button><button id="signoutBtn" class="outline" hidden>Sign out</button></div>
+</header>
+<section class="panel intro">
+<h1>My Test History</h1>
+<p>Sign in with Google to keep your private reports linked to your account across devices. On your first sign-in, ExamForge tries to link your current anonymous exam identity to Google so your existing reports stay associated with the same Firebase UID.</p>
+<p id="studentStatus" class="status" role="status">Connecting to Firebase…</p>
+<p class="muted">Existing results saved under an earlier anonymous UID cannot automatically move to a different account. To recover a previous live-room report, open its original room link in the browser/account used for that test; ExamForge will sync it when your report loads. Do not clear that browser's storage.</p>
+</section>
+<main id="dashboard" hidden>
+<section class="metrics"><article class="metric"><small>Saved attempts</small><strong id="attemptCount">0</strong></article><article class="metric"><small>Live rooms</small><strong id="roomCount">0</strong></article><article class="metric"><small>Solo attempts</small><strong id="soloCount">0</strong></article><article class="metric"><small>Latest result</small><strong id="latestScore">—</strong></article></section>
+<section class="panel"><div class="controls"><div><h2>My saved reports</h2><p class="muted">Only your Firebase account's results appear here.</p></div><button id="refreshBtn" class="outline">Refresh</button></div>
+<div class="filters"><input id="searchInput" placeholder="Search test or room code" type="search"><select id="typeSelect"><option value="all">All tests</option><option value="room">Live rooms</option><option value="solo">Solo practice</option></select></div>
+<div class="tablewrap"><table><thead><tr><th>Date</th><th>Test</th><th>Type</th><th>Score</th><th>Correct</th><th>Wrong</th><th>Report</th></tr></thead><tbody id="reportRows"><tr><td colspan="7">Sign in to see your history.</td></tr></tbody></table></div></section>
+<section class="panel" id="reportPanel" hidden><div class="controls"><div><h2 id="reportTitle">Report</h2><p id="reportSummary" class="muted"></p></div><button class="outline" id="closeReportBtn">Close</button></div><div id="subjectStats" class="metrics"></div><div id="reportQuestions" class="questions"></div></section>
+</main><footer class="muted">Student history is a private convenience copy of scores and reports stored by your browser. The live-room results remain the source of truth.</footer>
+</div></body></html>
