@@ -23,11 +23,11 @@ const FIREBASE_CONFIG = {
 const DATABASE_RULES = {
   "rules": {
     "rooms": {
-      ".read": "auth != null && auth.uid === \"PASTE_YOUR_GOOGLE_AUTH_UID_HERE\"",
+      ".read": "auth != null && auth.uid === \"aDoKGJYtSddgooKQDwdcGGefeiv1\"",
       "$room": {
         "meta": {
           ".read": "auth != null",
-          ".write": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (auth != null && ((!data.exists() && newData.child(\"hostUid\").val() === auth.uid) || (data.child(\"hostUid\").val() === auth.uid && newData.child(\"hostUid\").val() === auth.uid)))",
+          ".write": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' || (auth != null && ((!data.exists() && newData.child(\"hostUid\").val() === auth.uid) || (data.child(\"hostUid\").val() === auth.uid && newData.child(\"hostUid\").val() === auth.uid)))",
           ".validate": "newData.hasChildren([\"hostUid\", \"title\", \"status\", \"createdAt\", \"durationMinutes\", \"shareReports\", \"examChat\", \"marking\"]) && newData.child(\"hostUid\").isString() && newData.child(\"title\").isString() && newData.child(\"title\").val().length <= 150 && newData.child(\"status\").isString() && (newData.child(\"status\").val() === \"lobby\" || newData.child(\"status\").val() === \"started\" || newData.child(\"status\").val() === \"finished\") && newData.child(\"durationMinutes\").isNumber() && newData.child(\"durationMinutes\").val() >= 1 && newData.child(\"durationMinutes\").val() <= 300 && newData.child(\"shareReports\").isBoolean() && newData.child(\"examChat\").isBoolean() && (!data.exists() || newData.child(\"hostUid\").val() === data.child(\"hostUid\").val())"
         },
         "paper": {
@@ -72,24 +72,24 @@ const DATABASE_RULES = {
             ".validate": "newData.hasChildren([\"questions\", \"subjectStats\"])"
           }
         },
-        ".write": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' && !newData.exists()"
+        ".write": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' && !newData.exists()"
       }
     },
     "studentHistory": {
       "$uid": {
-        ".read": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous')",
+        ".read": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' || (auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous')",
         "$room": {
           ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && newData.exists() && !data.exists() && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists() && root.child('rooms/' + $room + '/reports/' + auth.uid).exists()",
           ".validate": "newData.hasChildren([\"uid\", \"room\", \"title\", \"name\", \"createdAt\", \"score\", \"report\"]) && newData.child(\"uid\").val() === auth.uid && newData.child(\"room\").val() === $room && newData.child(\"title\").isString() && newData.child(\"title\").val().length <= 150 && newData.child(\"score/score\").isNumber() && newData.child(\"report/questions\").exists() && newData.child('score/score').val() === root.child('rooms/' + $room + '/scores/' + auth.uid + '/score').val() && newData.child('score/maxScore').val() === root.child('rooms/' + $room + '/scores/' + auth.uid + '/maxScore').val()"
         },
         ".write": "auth != null && auth.uid === $uid && !newData.exists()"
       },
-      ".read": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE'"
+      ".read": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1'"
     },
     "soloHistory": {
-      ".read": "auth != null && auth.uid === \"PASTE_YOUR_GOOGLE_AUTH_UID_HERE\"",
+      ".read": "auth != null && auth.uid === \"aDoKGJYtSddgooKQDwdcGGefeiv1\"",
       "$uid": {
-        ".read": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE' || (auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous')",
+        ".read": "auth != null && auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' || (auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous')",
         "$attempt": {
           ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && !data.exists() && newData.exists()",
           ".validate": "newData.hasChildren([\"uid\", \"name\", \"title\", \"createdAt\", \"clientCreatedAt\", \"score\", \"report\"]) && newData.child(\"uid\").val() === auth.uid && newData.child(\"name\").isString() && newData.child(\"name\").val().length <= 30 && newData.child(\"title\").isString() && newData.child(\"title\").val().length <= 150 && newData.child(\"createdAt\").isNumber() && newData.child(\"clientCreatedAt\").isNumber() && newData.child(\"score/score\").isNumber() && newData.child(\"score/maxScore\").isNumber()"
@@ -261,6 +261,7 @@ async function finishIdentity(){
   $('myReportsLink').hidden=!google;
   $('adminPanelLink').hidden=!(google&&S.uid===ADMIN_UID);
   $('switchAccountBtn').hidden=false;
+  $('upgradeAccountBtn').hidden=google;
   badge(google?'Google account connected':'Guest · live rooms ready',true);
   if(!clockReady){watchServerClock();clockReady=true;}
   if(google)flushPendingSoloHistory().catch(()=>{});
@@ -312,9 +313,23 @@ $('googleEntryBtn').addEventListener('click',async()=>{
   }catch(e){authNote('Google sign-in failed: '+String(e?.message||e),true);}
   finally{$('googleEntryBtn').disabled=false;}
 });
+$('upgradeAccountBtn').addEventListener('click',async()=>{
+  const user=S.auth?.currentUser;
+  if(!user?.isAnonymous)return;
+  try{
+    await linkWithPopup(user,new GoogleAuthProvider());
+    identityReady=false;await finishIdentity();
+    if(S.room&&S.myReport)archiveMyRoomReport().catch(()=>{});
+    toast('Guest identity linked to Google. Your Firebase UID is unchanged.');
+  }catch(e){
+    if(e.code==='auth/credential-already-in-use'||e.code==='auth/email-already-in-use')
+      toast('That Google account already exists. Finish this test first; signing into that account would change your UID and cannot automatically merge old guest history.',true);
+    else toast('Google upgrade failed: '+String(e?.message||e),true);
+  }
+});
 $('switchAccountBtn').addEventListener('click',async()=>{
   if(S.view==='exam'&&!confirm('Leave this active test? Your unsent answers remain on this device.'))return;
-  if(S.room)home();
+  if(S.room){home();if(S.room)return;}
   identityReady=false;S.uid=null;
   try{await signOut(S.auth);presentIdentityGate();}
   catch(e){toast('Sign-out failed: '+errorMessage(e),true);}
