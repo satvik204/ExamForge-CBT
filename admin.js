@@ -102,8 +102,11 @@ function downloadCsv(){
   const escape=v=>'"'+safeTxt(v).replaceAll('"','""')+'"';
   const out=[fields.join(',')];
   for(const r of filteredRows){const obj={date:fmtDate(r.createdAt),type:r.type,room:r.room,title:r.title,name:r.name,uid:r.uid,score:r.score?.score??'',maxScore:r.score?.maxScore??'',correct:r.score?.correct??'',wrong:r.score?.wrong??'',unanswered:r.score?.unanswered??'',elapsedSeconds:r.score?.elapsedSeconds??'',status:r.score?'scored':r.submitted?'pending':'not submitted'};out.push(fields.map(k=>escape(obj[k])).join(','));}
-  const url=URL.createObjectURL(new Blob(['﻿'+out.join('
-')],{type:'text/csv;charset=utf-8'}));
+const url = URL.createObjectURL(
+  new Blob(['\uFEFF' + out.join('\r\n')], {
+    type: 'text/csv;charset=utf-8'
+  })
+);
   const a=document.createElement('a');a.href=url;a.download='ExamForge_Private_History_'+new Date().toISOString().slice(0,10)+'.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
 }
 $('googleBtn').addEventListener('click',async()=>{try{await setPersistence(auth,browserSessionPersistence);await signInWithPopup(auth,new GoogleAuthProvider());}catch(e){setStatus('Google sign-in failed: '+String(e?.message||e),true);}});
