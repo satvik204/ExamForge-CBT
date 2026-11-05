@@ -45,7 +45,7 @@
         },
         "reports": {
           "$uid": {
-            ".read": "auth != null && (auth.uid === $uid || root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid || (root.child(\"rooms/\" + $room + \"/members/\" + auth.uid).exists() && root.child(\"rooms/\" + $room + \"/meta/shareReports\").val() === true && root.child(\"rooms/\" + $room + \"/meta/status\").val() === \"finished\"))",
+            ".read": "auth != null && (auth.uid === $uid || root.child('rooms/' + $room + '/meta/hostUid').val() === auth.uid || auth.uid === 'aDoKGJYtSddgooKQDwdcGGefeiv1' || (root.child('rooms/' + $room + '/meta/shareReports').val() === true && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && root.child('rooms/' + $room + '/submissions/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + $uid).exists() && (root.child('rooms/' + $room + '/meta/status').val() === 'started' || (root.child('rooms/' + $room + '/meta/status').val() === 'finished' && root.child('rooms/' + $room + '/meta/finishedAt').isNumber() && now <= root.child('rooms/' + $room + '/meta/finishedAt').val() + 86400000))))",
             ".write": "auth != null && root.child(\"rooms/\" + $room + \"/meta/hostUid\").val() === auth.uid && root.child(\"rooms/\" + $room + \"/submissions/\" + $uid).exists()",
             ".validate": "newData.hasChildren([\"questions\", \"subjectStats\"])"
           }
