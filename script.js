@@ -23,6 +23,7 @@ const FIREBASE_CONFIG = {
 const DATABASE_RULES = {
   rules: {
     rooms: {
+      '.read': 'auth != null && auth.uid === "PASTE_YOUR_GOOGLE_AUTH_UID_HERE"',
       '$room': {
         meta: {
           '.read': 'auth != null',
@@ -69,6 +70,16 @@ const DATABASE_RULES = {
             '.write': 'auth != null && root.child("rooms/" + $room + "/meta/hostUid").val() === auth.uid && root.child("rooms/" + $room + "/submissions/" + $uid).exists()',
             '.validate': 'newData.hasChildren(["questions", "subjectStats"])'
           }
+        }
+      }
+    },
+    soloHistory: {
+      '.read': 'auth != null && auth.uid === "PASTE_YOUR_GOOGLE_AUTH_UID_HERE"',
+      '$uid': {
+        '.read': 'auth != null && auth.uid === $uid',
+        '$attempt': {
+          '.write': 'auth != null && auth.uid === $uid && !data.exists() && newData.exists()',
+          '.validate': 'newData.hasChildren(["uid", "name", "title", "createdAt", "clientCreatedAt", "score", "report"]) && newData.child("uid").val() === auth.uid && newData.child("name").isString() && newData.child("name").val().length <= 30 && newData.child("title").isString() && newData.child("title").val().length <= 150 && newData.child("createdAt").isNumber() && newData.child("clientCreatedAt").isNumber() && newData.child("score/score").isNumber() && newData.child("score/maxScore").isNumber() && newData.child("report/questions").numChildren() <= 300'
         }
       }
     }
@@ -222,6 +233,7 @@ async function connectFirebase(){
     await new Promise((resolve,reject)=>{const un=onAuthStateChanged(S.auth,u=>{un();resolve(u);},e=>{un();reject(e);});});
     if(!S.auth.currentUser) await signInAnonymously(S.auth);
     S.uid=S.auth.currentUser.uid;
+    flushPendingSoloHistory().catch(()=>{});
     badge('Live rooms connected',true);
     watchServerClock();
     const fromUrl=new URLSearchParams(location.search).get('room');
@@ -235,6 +247,46 @@ async function connectFirebase(){
   }catch(e){badge('Firebase connection failed',false);toast(errorMessage(e),true);}
 }
 function watchServerClock(){onValue(ref(S.db,'.info/serverTimeOffset'),s=>{S.offset=Number(s.val())||0;});}
+
+// Admin history: solo reports are private to the student and the approved Firebase admin.
+// Queue unsent records locally if the connection is unavailable; sending never blocks solo CBT.
+const SOLO_HISTORY_QUEUE = 'ef-admin-solo-pending-v1';
+function loadPendingSoloHistory(){
+  try { const items=JSON.parse(localStorage.getItem(SOLO_HISTORY_QUEUE)||'[]'); return Array.isArray(items)?items:[]; }
+  catch { return []; }
+}
+function addPendingSoloHistory(score,report){
+  try {
+    const pending=loadPendingSoloHistory();
+    const id='s'+Date.now().toString(36)+'_'+crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
+    pending.push({id, uid:S.uid||null, name:displayName()||'Student', title:S.pack?.title||'Solo CBT', clientCreatedAt:Date.now(), score,report});
+    localStorage.setItem(SOLO_HISTORY_QUEUE,JSON.stringify(pending.slice(-100)));
+    flushPendingSoloHistory().catch(()=>{});
+  } catch(e){ console.warn('Could not queue solo report for admin history:',e); }
+}
+let soloArchiveFlushing=false;
+async function flushPendingSoloHistory(){
+  if(soloArchiveFlushing||!S.db||!S.uid)return;
+  soloArchiveFlushing=true;
+  try {
+    let pending=loadPendingSoloHistory();
+    for(const item of pending){
+      if(item.uid && item.uid!==S.uid)continue; // Never claim another person's result.
+      const path=`soloHistory/${S.uid}/${item.id}`;
+      try {
+        const target=ref(S.db,path);
+        const old=await get(target); // idempotent after interrupted requests
+        if(!old.exists()) await set(target,{
+          uid:S.uid,name:item.name,title:item.title,clientCreatedAt:item.clientCreatedAt,
+          createdAt:serverTimestamp(),score:item.score,report:item.report
+        });
+        pending=loadPendingSoloHistory().filter(x=>x.id!==item.id);
+        localStorage.setItem(SOLO_HISTORY_QUEUE,JSON.stringify(pending));
+      }catch(e){console.warn('Solo result will retry syncing to admin history:',e);break;}
+    }
+  }finally{soloArchiveFlushing=false;}
+}
+
 function requireLive(){if(!S.db||!S.uid)throw Error('Live rooms need Firebase setup. Expand “First-time live-room setup” on the home screen.');}
 function makeRoomCode(){const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';const bytes=new Uint8Array(14);crypto.getRandomValues(bytes);return Array.from(bytes,b=>alphabet[b%alphabet.length]).join('');}
 function inviteUrl(code){const u=new URL(location.href);u.search=`?room=${encodeURIComponent(code)}`;u.hash='';return u.toString();}
@@ -389,7 +441,7 @@ async function finalizeSubmission(auto=false){
   S.syncing=true;
   try{
     if(S.solo){S.exam.submitted=true;clearExamClock();const submission={answers:answersForTransport(),elapsedSeconds:elapsedSeconds(),submittedAt:Date.now()};
-      const {score,report}=grade(S.pack,submission);S.scores={[S.uid||'solo']:score};S.myReport=report;S.reportCache={[S.uid||'solo']:report};S.members={[S.uid||'solo']:{name:displayName()||'You'}};renderResults();toast('Submitted! Your score is ready.');return;}
+      const {score,report}=grade(S.pack,submission);S.scores={[S.uid||'solo']:score};S.myReport=report;S.reportCache={[S.uid||'solo']:report};S.members={[S.uid||'solo']:{name:displayName()||'You'}};addPendingSoloHistory(score,report);renderResults();toast('Submitted! Your score is ready.');return;}
     if(S.meta?.status!=='started')throw Error('This room is no longer accepting submissions.');
     const submission={answers:answersForTransport(),elapsedSeconds:elapsedSeconds(),submittedAt:serverTimestamp()};
     await set(ref(S.db,`rooms/${S.room}/submissions/${S.uid}`),submission);

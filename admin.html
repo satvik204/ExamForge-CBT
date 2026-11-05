@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>ExamForge · Private Admin History</title>
+  <link rel="stylesheet" href="admin.css">
+  <script type="module" src="admin.js"></script>
+</head>
+<body>
+<div class="layout">
+  <header class="topbar">
+    <div><a class="back" href="index.html">← Back to ExamForge</a><div class="brand"><span class="logo">EF</span><div><strong>ExamForge Admin</strong><small>Private score & report history</small></div></div></div>
+    <div class="signin"><span id="authName" class="muted">Not signed in</span><button id="googleBtn">Sign in with Google</button><button id="signoutBtn" class="outline" hidden>Sign out</button></div>
+  </header>
+  <section id="intro" class="panel intro"><h1>Site-wide Test History</h1><p>Only the Google account explicitly approved in Firebase Database Rules can load all tests, scores and reports. Sign in to show your Firebase UID, then configure the rules once.</p><div class="uidline"><span>Your Firebase UID:</span> <code id="currentUid">Sign in first</code> <button id="copyUidBtn" class="outline" disabled>Copy UID</button></div><p id="authStatus" class="status">Sign in with Google to continue.</p></section>
+  <main id="dashboard" hidden>
+    <section class="metrics">
+      <article class="metric"><small>Rooms</small><strong id="roomCount">0</strong></article>
+      <article class="metric"><small>Multiplayer attempts</small><strong id="liveCount">0</strong></article>
+      <article class="metric"><small>Solo attempts (synced)</small><strong id="soloCount">0</strong></article>
+      <article class="metric"><small>Average score (%)</small><strong id="avgPercent">—</strong></article>
+    </section>
+    <section class="panel">
+      <div class="controls"><div><h2>Every test attempt</h2><p class="muted">Multiplayer rooms already in Firebase, plus new synced solo tests.</p></div><div class="actions"><button id="refreshBtn" class="outline">Refresh</button><button id="exportBtn">Export CSV</button></div></div>
+      <div class="filters"><input id="searchInput" type="search" placeholder="Search student, test title, room code…"><select id="typeSelect"><option value="all">All types</option><option value="room">Multiplayer</option><option value="solo">Solo</option></select><select id="statusSelect"><option value="all">All statuses</option><option value="scored">Scored only</option><option value="pending">Not scored</option></select></div>
+      <div class="tablewrap"><table><thead><tr><th>Date</th><th>Test / Room</th><th>Student</th><th>Type</th><th>Score</th><th>Correct</th><th>Wrong</th><th>Status</th><th>Report</th></tr></thead><tbody id="historyRows"><tr><td colspan="9">No data loaded.</td></tr></tbody></table></div>
+      <p class="muted foot" id="resultCount"></p>
+    </section>
+    <section id="details" class="panel" hidden><div class="controls"><div><h2 id="detailTitle">Report</h2><p id="detailSub" class="muted"></p></div><button id="closeDetailBtn" class="outline">Close</button></div><div id="detailStats" class="metrics"></div><div id="detailQuestions" class="questions"></div></section>
+  </main>
+  <footer class="muted">Access is enforced by Firebase rules, not by a hidden webpage link. Solo reports are uploaded only when the student's browser can connect to Firebase. This is a practice-test dashboard, not proctored scoring.</footer>
+</div>
+</body></html>
