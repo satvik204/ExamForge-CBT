@@ -76,7 +76,7 @@ const DATABASE_RULES = {
         "resultSessions": {
           "$uid": {
             ".read": "auth != null && (auth.uid === $uid || auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE')",
-            ".write": "auth != null && auth.uid === $uid && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && ((!data.exists() && newData.val() === true && root.child('rooms/' + $room + '/submissions/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists()) || (data.val() === true && newData.val() === false))",
+            ".write": "auth != null && auth.uid === $uid && root.child('rooms/' + $room + '/members/' + auth.uid).exists() && ((!data.exists() && (newData.val() === true || newData.val() === false) && root.child('rooms/' + $room + '/submissions/' + auth.uid).exists() && root.child('rooms/' + $room + '/scores/' + auth.uid).exists()) || (data.val() === true && newData.val() === false))",
             ".validate": "newData.isBoolean()"
           }
         }
@@ -337,7 +337,8 @@ $('upgradeAccountBtn').addEventListener('click',async()=>{
 });
 $('switchAccountBtn').addEventListener('click',async()=>{
   if(S.view==='exam'&&!confirm('Leave this active test? Your unsent answers remain on this device.'))return;
-  if(S.room){home();if(S.room)return;}
+  if(S.room && S.view==='results'){await exitResults();if(S.room)return;}
+  else if(S.room){home();if(S.room)return;}
   identityReady=false;S.uid=null;
   try{await signOut(S.auth);presentIdentityGate();}
   catch(e){toast('Sign-out failed: '+errorMessage(e),true);}
@@ -675,8 +676,9 @@ async function ensurePeerSession(){
   const path=ref(S.db,`rooms/${room}/resultSessions/${uid}`);
   S.peerSessionPromise=(async()=>{
     try{
-      await set(path,true);
+      // Register server-side revocation BEFORE granting peer access.
       await onDisconnect(path).set(false);
+      await set(path,true);
       if(S.room!==room||S.uid!==uid||S.view!=='results'){
         await set(path,false);
         S.peerSessionState='closed';
