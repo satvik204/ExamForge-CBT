@@ -55,7 +55,7 @@ async function refresh(){
     $('soloCount').textContent=allRows.filter(x=>x.type==='solo'&&x.score).length;
     const p=allRows.map(x=>compactPercent(x.score)).filter(x=>x!==null);
     $('avgPercent').textContent=p.length?(p.reduce((a,b)=>a+b,0)/p.length).toFixed(1)+'%':'—';
-    applyFilters();setStatus(`Authorized admin. Loaded ${allRows.length} test records.`);
+    applyFilters();setStatus(`Authorized admin. Loaded ${allRows.length} practice records. Scores are not independently verified.`);
   }catch(e){
     $('dashboard').hidden=true;
     const m=String(e?.code||e?.message||e);
