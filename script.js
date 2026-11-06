@@ -807,10 +807,11 @@ function questionsFromPdfText(text){
       subject=/math/i.test(line)?'Mathematics':/^physics/i.test(line)?'Physics':'Chemistry';continue;
     }
     const q=line.match(/^(?:Q(?:uestion)?\.?\s*)?(\d{1,3})\s*[.):-]\s*(.+)$/i);
-    if(q&&Number(q[1])>=1 && Number(q[1])<=300 && (line.match(/^(?:Q(?:uestion)?\.?\s*)/i)||Number(q[1])===questions.length+1)){
+    if(q&&Number(q[1])>=1 && Number(q[1])<=300 && (line.match(/^(?:Q(?:uestion)?\.?\s*)/i)||Number(q[1])===questions.length+(current?2:1))){
       finish();current={id:'Q'+q[1],subject,type:'single',text:q[2],options:[],answer:''};continue;
     }
     if(!current)continue;
+    if(/^(?:sample created for testing|upload this pdf|page \d+ of \d+)/i.test(line))continue;
     const option=line.match(/^(?:\(?([A-D])\)|([A-D])[.):])\s*(.+)$/i);
     if(option){
       const letter=(option[1]||option[2]).toUpperCase(),idx='ABCD'.indexOf(letter);
