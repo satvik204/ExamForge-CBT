@@ -235,6 +235,7 @@ function importPack(pack){S.pack=normalizePack(pack);$('packInput').value=JSON.s
     if(i>=20){node.append(addText('p','muted',`...and ${S.pack.questions.length-20} more questions ready.`));break;}
     const box=addText('article','preview-item','');box.append(addText('div','mini',`${i+1} · ${q.subject} · ${q.type} · Answer: ${Array.isArray(q.answer)?q.answer.join(','):q.answer}`),addText('p','',q.text || '[image question]'));
     if(q.options.length)box.append(addText('div','option-lines',q.options.map((o,j)=>`${ABC[j]}. ${o}`).join('\n')));
+    if(safeImage(q.image)){const img=document.createElement('img');img.src=q.image;img.alt='Diagram for question '+(i+1);img.loading='lazy';img.style.maxWidth='100%';img.style.maxHeight='250px';box.append(img);}
     node.append(box);
   }
   typeset(node);status(`${S.pack.questions.length} questions imported with answer key. Preview before hosting.`);
