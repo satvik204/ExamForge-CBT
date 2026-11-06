@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#0b1123"><title>ExamForge PDF Converter Lab</title>
+<link rel="stylesheet" href="style.css?v=8">
+<script>window.MathJax={tex:{inlineMath:[['\\(','\\)'],['$','$']],displayMath:[['\\[','\\]']]},options:{skipHtmlTags:['script','noscript','style','textarea','pre','code']},startup:{typeset:false}};</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+<script type="module" src="converter.js?v=1"></script>
+<script type="module" src="pdf-enhancements.js?v=1"></script>
+</head><body><div class="app-shell"><header class="topbar"><a class="brand" href="./"><span class="brand-mark">E<span>F</span></span><span>Exam<span>Forge</span><small>CONVERTER LAB</small></span></a><div class="top-actions"><a class="student-link" href="./">← Back to CBT</a></div></header>
+<main><section class="hero"><div><p class="eyebrow">SEPARATE EXPERIMENTAL TOOL</p><h1>PDF → <em>ExamForge</em></h1><p class="hero-sub">Import a PDF, fix equations, crop diagrams, verify answers, then export a code for the main CBT app. No Firebase account is required for this lab.</p><p class="muted">Experimental: text-based PDFs only for question detection. Files stay in your browser. Verify every answer before sharing a test code.</p></div></section>
+        <section class="panel" id="pdfImportPanel" style="margin-top:18px">
+          <div class="panel-heading"><div><span class="section-tag">PDF → TEST</span><h2>Import a PDF question paper</h2><p>Extract text from a selectable-text PDF, check the draft, and add the correct answers. Scanned papers and diagrams need manual correction.</p></div><span class="panel-icon">PDF</span></div>
+          <div class="button-row" style="align-items:end;flex-wrap:wrap">
+            <label style="flex:1;min-width:200px">Question paper PDF<input id="pdfQuestionFile" type="file" accept=".pdf,application/pdf" style="display:block;margin-top:8px;max-width:100%"></label>
+            <label style="flex:1;min-width:200px">Answer key PDF (optional)<input id="pdfAnswerFile" type="file" accept=".pdf,application/pdf" style="display:block;margin-top:8px;max-width:100%"></label>
+          </div>
+          <div class="button-row" style="align-items:end;flex-wrap:wrap">
+            <label style="flex:2;min-width:180px">Test title<input id="pdfTestTitle" placeholder="e.g. JEE Main Mock 01" maxlength="140" style="display:block;width:100%;margin-top:8px"></label>
+            <label style="flex:1;min-width:120px">Duration (minutes)<input id="pdfTestDuration" type="number" min="1" max="300" value="180" style="display:block;width:100%;margin-top:8px"></label>
+            <button id="pdfExtractBtn" type="button" class="btn btn-secondary">Extract PDF draft</button>
+          </div>
+          <p id="pdfImportStatus" class="muted" role="status">Only text-based PDFs are supported for automatic extraction. Your files are processed in this browser.</p>
+          <div id="pdfDraftEditor" hidden>
+            <label for="pdfDraftJson"><strong>Review extracted questions (editable JSON)</strong></label>
+            <p class="muted">Verify every question, option, subject, and diagram. Edit the draft before creating a CBT. The answer key must be checked against the source paper.</p>
+            <textarea id="pdfDraftJson" spellcheck="false" rows="12" style="width:100%;font-family:monospace"></textarea>
+            <label for="pdfKeyText"><strong>Correct answers</strong></label>
+            <p class="muted">Paste one answer per line, like <code>1 A</code>, <code>2 C</code>, <code>3 42</code> (numerical answer), or just <code>A</code>, <code>C</code>, <code>42</code> in question order. For multiple correct options use <code>AC</code> and set the question type to <code>multi</code>. Answers extracted from a key PDF are only a draft—verify them.</p>
+            <textarea id="pdfKeyText" rows="6" placeholder="1 A&#10;2 C&#10;3 B" spellcheck="false" style="width:100%"></textarea>
+            <div class="pdf-enhancement-section">
+              <h3>LaTeX maths editor</h3>
+              <p class="muted">Your CBT already renders MathJax. PDF text extraction may lose fractions, powers and matrices, so add a verified LaTeX expression to the selected question or option. For example: <code>\\frac{1}{2}mv^2</code>.</p>
+              <div class="pdf-editor-controls">
+                <label>Question <select id="pdfMathQuestion"></select></label>
+                <label>Insert into <select id="pdfMathTarget"><option value="text">Question text</option><option value="0">Option A</option><option value="1">Option B</option><option value="2">Option C</option><option value="3">Option D</option></select></label>
+              </div>
+              <label for="pdfMathText">LaTeX expression</label>
+              <input id="pdfMathText" placeholder="\\frac{1}{2}mv^2" spellcheck="false">
+              <div class="button-row"><button type="button" class="btn btn-secondary" id="pdfMathInsert">Insert expression</button><button type="button" class="btn btn-ghost" id="pdfMathPreviewBtn">Preview formatted maths</button></div>
+              <div id="pdfMathPreview" class="pdf-math-preview" aria-live="polite"></div>
+            </div>
+            <div class="pdf-enhancement-section">
+              <h3>Diagrams, graphs and image-based equations</h3>
+              <p class="muted">Select a page from the original question PDF. Drag over the needed diagram, then attach it to a question. This works for diagrams inside scanned PDFs too (but does not OCR the question text).</p>
+              <div class="pdf-editor-controls">
+                <label>PDF page <select id="pdfCropPage"></select></label>
+                <label>Question <select id="pdfCropQuestion"></select></label>
+                <button type="button" class="btn btn-secondary" id="pdfCropOpen">Show page</button>
+                <button type="button" class="btn btn-teal" id="pdfCropSave" disabled>Attach crop</button>
+              </div>
+              <div id="pdfCropStage" class="pdf-crop-stage" hidden>
+                <canvas id="pdfCropCanvas" aria-label="PDF page: drag to select a diagram"></canvas>
+                <div id="pdfCropRect" class="pdf-crop-rect" hidden></div>
+              </div>
+              <p id="pdfCropStatus" class="muted" role="status">Choose a PDF and extract questions first.</p>
+            </div>
+            <div class="button-row"><button class="btn btn-primary" id="pdfCreateTestBtn" type="button">Validate and create CBT</button></div>
+          </div>
+        </section>
+
+<section class="panel" id="converterOutputPanel" style="margin-top:18px" hidden><h2>Export your ExamForge test</h2><p class="muted" id="converterResult"></p><div class="button-row"><button class="btn btn-primary" id="converterCopyBtn" type="button">Copy EF1 test code</button><button class="btn btn-secondary" id="converterDownloadBtn" type="button">Download JSON file</button><a class="btn btn-ghost" href="./">Go to main CBT</a></div><label for="converterCode">Test code (copy into ExamForge main website)</label><textarea id="converterCode" readonly rows="6" spellcheck="false" style="width:100%"></textarea><div id="converterPreview" class="preview-questions"></div></section>
+</main><footer class="footer">ExamForge PDF Converter Lab · Experimental tool separate from CBT</footer></div></body></html>
