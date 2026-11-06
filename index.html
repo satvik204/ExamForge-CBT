@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="theme-color" content="#0b1123" />
-  <meta name="description" content="ExamForge — turn a structured test code into a JEE-style CBT and attempt it together in real-time." />
+  <meta name="description" content="ExamForge — turn a PDF or structured test code into a JEE-style CBT and attempt it together in real-time." />
   <title>ExamForge | Your CBT Arena</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -14,7 +14,7 @@
     window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre','code'] }, startup: { typeset: false } };
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-  <script type="module" src="script.js?v=7"></script>
+  <script type="module" src="script.js?v=8"></script>
 </head>
 <body>
   <section id="authGate" class="auth-gate" hidden aria-labelledby="identityLabel">
@@ -38,7 +38,7 @@
     <main>
       <section id="homeView" class="view">
         <div class="hero">
-          <div><p class="eyebrow">THE NO-OCR TEST PLATFORM</p><h1>Your paper. <em>Your room.</em><br />Your competition.</h1><p class="hero-sub">Paste a prepared test code and jump straight into an NTA-style CBT. Create a live room, chat, start together, and compare detailed scores.</p><div class="hero-pills"><span>✦ No PDF processing</span><span>◎ Real-time rooms</span><span>↗ GitHub Pages-ready</span></div></div>
+          <div><p class="eyebrow">PDF-READY CBT PLATFORM</p><h1>Your paper. <em>Your room.</em><br />Your competition.</h1><p class="hero-sub">Upload a text-based PDF or paste a prepared test code to build a CBT. Create a live room, chat, start together, and compare detailed scores.</p><div class="hero-pills"><span>✦ PDF import + review</span><span>◎ Real-time rooms</span><span>↗ GitHub Pages-ready</span></div></div>
           <div class="hero-graphic" aria-hidden="true"><div class="orbit orbit-a"></div><div class="orbit orbit-b"></div><div class="orb-core">75<span>QUESTIONS</span></div><div class="orb-label orb-a">+4 / −1</div><div class="orb-label orb-b">LIVE ROOM ●</div></div>
         </div>
 
@@ -55,6 +55,28 @@
           </section>
         </div>
 
+        <section class="panel" id="pdfImportPanel" style="margin-top:18px">
+          <div class="panel-heading"><div><span class="section-tag">PDF → TEST</span><h2>Import a PDF question paper</h2><p>Extract text from a selectable-text PDF, check the draft, and add the correct answers. Scanned papers and diagrams need manual correction.</p></div><span class="panel-icon">PDF</span></div>
+          <div class="button-row" style="align-items:end;flex-wrap:wrap">
+            <label style="flex:1;min-width:200px">Question paper PDF<input id="pdfQuestionFile" type="file" accept=".pdf,application/pdf" style="display:block;margin-top:8px;max-width:100%"></label>
+            <label style="flex:1;min-width:200px">Answer key PDF (optional)<input id="pdfAnswerFile" type="file" accept=".pdf,application/pdf" style="display:block;margin-top:8px;max-width:100%"></label>
+          </div>
+          <div class="button-row" style="align-items:end;flex-wrap:wrap">
+            <label style="flex:2;min-width:180px">Test title<input id="pdfTestTitle" placeholder="e.g. JEE Main Mock 01" maxlength="140" style="display:block;width:100%;margin-top:8px"></label>
+            <label style="flex:1;min-width:120px">Duration (minutes)<input id="pdfTestDuration" type="number" min="1" max="300" value="180" style="display:block;width:100%;margin-top:8px"></label>
+            <button id="pdfExtractBtn" type="button" class="btn btn-secondary">Extract PDF draft</button>
+          </div>
+          <p id="pdfImportStatus" class="muted" role="status">Only text-based PDFs are supported for automatic extraction. Your files are processed in this browser.</p>
+          <div id="pdfDraftEditor" hidden>
+            <label for="pdfDraftJson"><strong>Review extracted questions (editable JSON)</strong></label>
+            <p class="muted">Verify every question, option, subject, and diagram. Edit the draft before creating a CBT. The answer key must be checked against the source paper.</p>
+            <textarea id="pdfDraftJson" spellcheck="false" rows="12" style="width:100%;font-family:monospace"></textarea>
+            <label for="pdfKeyText"><strong>Correct answers</strong></label>
+            <p class="muted">Paste one answer per line, like <code>1 A</code>, <code>2 C</code>, <code>3 42</code> (numerical answer), or just <code>A</code>, <code>C</code>, <code>42</code> in question order. For multiple correct options use <code>AC</code> and set the question type to <code>multi</code>. Answers extracted from a key PDF are only a draft—verify them.</p>
+            <textarea id="pdfKeyText" rows="6" placeholder="1 A&#10;2 C&#10;3 B" spellcheck="false" style="width:100%"></textarea>
+            <div class="button-row"><button class="btn btn-primary" id="pdfCreateTestBtn" type="button">Validate and create CBT</button></div>
+          </div>
+        </section>
         <section id="previewPanel" class="panel preview-panel" hidden><div class="panel-heading"><div><span class="section-tag">PAPER PREVIEW</span><h2 id="previewTitle">Imported paper</h2><p id="previewMeta"></p></div><div class="preview-actions"><button class="btn btn-secondary" id="downloadJsonBtn">Download JSON</button></div></div><div id="previewQuestions" class="preview-questions"></div></section>
         <details class="setup-box"><summary>⚙ First-time live-room setup (Firebase Spark — no payment card needed)</summary><div class="setup-content"><p><strong>GitHub Pages is static hosting.</strong> Multiplayer needs Firebase Realtime Database. Your friends choose Continue with Google or Continue as guest. Google is required for account-linked report history; guests use Firebase Anonymous Authentication.</p><ol><li>At <a href="https://console.firebase.google.com/" target="_blank" rel="noopener noreferrer">Firebase Console</a>, create a project on the <strong>Spark</strong> plan.</li><li>Add a <strong>Web app</strong> and copy its Firebase config into <code>FIREBASE_CONFIG</code> at the top of <code>script.js</code>.</li><li>In <strong>Build → Authentication → Sign-in method</strong>, enable <strong>Anonymous</strong>.</li><li>In <strong>Build → Realtime Database</strong>, create a database and copy its exact <code>databaseURL</code> into your Firebase config. In its <strong>Rules</strong> tab, paste the complete latest rules from <code>FIREBASE_RULES_STUDENT_HISTORY.json</code> in GitHub and click <strong>Publish</strong>.</li><li>In <strong>Authentication → Settings → Authorized domains</strong>, add your <code>username.github.io</code> hostname if it is not already listed.</li><li>Deploy the three files to your GitHub Pages repository. You do not need a server or Node.js.</li></ol><button class="btn btn-secondary" id="copyRulesBtn">Copy Firebase database rules</button><p class="fine-print">Keep the original test code and answer key private: paste it only on the host device. Friends get just the room link. The host must keep the tab open to score submissions automatically. Firebase setup is required only once. Friendly-group app; not a proctored high-security system.</p></div></details>
       </section>
