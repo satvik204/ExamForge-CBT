@@ -162,6 +162,7 @@ function createPdfPack(){
     if(!q.options?.length&&q.type!=='numerical')throw Error(`Question ${i+1} has no options. Edit the JSON before importing.`);
   });
   const pack=normalizePack(draft);
+  exportPack=pack;
   const code=encodePack(pack);
   document.getElementById('converterOutputPanel').hidden=false;
   document.getElementById('converterCode').value=code;
@@ -187,7 +188,8 @@ let exportPack=null;
 $('converterCopyBtn').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('converterCode').value);toast('EF1 test code copied!');}catch(e){toast(errorMessage(e),true);}});
 $('converterDownloadBtn').addEventListener('click',()=>{
   try{
-    const pack=normalizePack(JSON.parse($('pdfDraftJson').value));
+    if(!exportPack)throw Error('Validate and create the test before downloading.');
+    const pack=exportPack;
     const blob=new Blob([JSON.stringify(pack,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob);
     const a=document.createElement('a');a.href=url;a.download='examforge-converted-test.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1500);
   }catch(e){toast(errorMessage(e),true);}
