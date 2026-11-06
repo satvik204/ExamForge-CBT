@@ -11,3 +11,15 @@
 @media(max-width:700px){#upgradeAccountBtn{font-size:10px;padding:7px 9px}}
 
 .leader-row.leader-selectable{cursor:pointer;border-radius:9px;padding-left:9px;padding-right:9px}.leader-row.leader-selectable:hover,.leader-row.leader-selectable:focus-visible{background:#213956;outline:2px solid #4cbfdf;outline-offset:1px}
+
+/* PDF math editing / diagram cropper */
+.pdf-enhancement-section{margin-top:18px;padding:16px;border:1px solid rgba(150,160,190,.3);border-radius:12px}
+.pdf-enhancement-section h3{margin:0 0 8px}
+.pdf-enhancement-section label{font-size:.9rem;display:block}
+.pdf-enhancement-section input,.pdf-enhancement-section select{padding:9px;max-width:100%;margin:5px 0}
+.pdf-enhancement-section #pdfMathText{width:100%;box-sizing:border-box}
+.pdf-editor-controls{display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin:10px 0}
+.pdf-math-preview{padding:12px;margin:12px 0;border:1px dashed rgba(150,160,190,.35);border-radius:8px;overflow-x:auto}
+.pdf-crop-stage{position:relative;width:max-content;max-width:100%;margin:12px auto;border:2px solid rgba(70,150,220,.5);touch-action:none;user-select:none}
+.pdf-crop-stage canvas{display:block;max-width:100%;height:auto;cursor:crosshair;touch-action:none}
+.pdf-crop-rect{position:absolute;pointer-events:none;border:2px solid #00aaff;background:rgba(0,170,255,.16)}
