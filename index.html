@@ -9,12 +9,13 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=6" />
+  <link rel="stylesheet" href="style.css?v=8" />
   <script>
     window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre','code'] }, startup: { typeset: false } };
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-  <script type="module" src="script.js?v=9"></script>
+  <script type="module" src="script.js?v=10"></script>
+  <script type="module" src="pdf-enhancements.js?v=1"></script>
 </head>
 <body>
   <section id="authGate" class="auth-gate" hidden aria-labelledby="identityLabel">
@@ -74,6 +75,33 @@
             <label for="pdfKeyText"><strong>Correct answers</strong></label>
             <p class="muted">Paste one answer per line, like <code>1 A</code>, <code>2 C</code>, <code>3 42</code> (numerical answer), or just <code>A</code>, <code>C</code>, <code>42</code> in question order. For multiple correct options use <code>AC</code> and set the question type to <code>multi</code>. Answers extracted from a key PDF are only a draft—verify them.</p>
             <textarea id="pdfKeyText" rows="6" placeholder="1 A&#10;2 C&#10;3 B" spellcheck="false" style="width:100%"></textarea>
+            <div class="pdf-enhancement-section">
+              <h3>LaTeX maths editor</h3>
+              <p class="muted">Your CBT already renders MathJax. PDF text extraction may lose fractions, powers and matrices, so add a verified LaTeX expression to the selected question or option. For example: <code>\\frac{1}{2}mv^2</code>.</p>
+              <div class="pdf-editor-controls">
+                <label>Question <select id="pdfMathQuestion"></select></label>
+                <label>Insert into <select id="pdfMathTarget"><option value="text">Question text</option><option value="0">Option A</option><option value="1">Option B</option><option value="2">Option C</option><option value="3">Option D</option></select></label>
+              </div>
+              <label for="pdfMathText">LaTeX expression</label>
+              <input id="pdfMathText" placeholder="\\frac{1}{2}mv^2" spellcheck="false">
+              <div class="button-row"><button type="button" class="btn btn-secondary" id="pdfMathInsert">Insert expression</button><button type="button" class="btn btn-ghost" id="pdfMathPreviewBtn">Preview formatted maths</button></div>
+              <div id="pdfMathPreview" class="pdf-math-preview" aria-live="polite"></div>
+            </div>
+            <div class="pdf-enhancement-section">
+              <h3>Diagrams, graphs and image-based equations</h3>
+              <p class="muted">Select a page from the original question PDF. Drag over the needed diagram, then attach it to a question. This works for diagrams inside scanned PDFs too (but does not OCR the question text).</p>
+              <div class="pdf-editor-controls">
+                <label>PDF page <select id="pdfCropPage"></select></label>
+                <label>Question <select id="pdfCropQuestion"></select></label>
+                <button type="button" class="btn btn-secondary" id="pdfCropOpen">Show page</button>
+                <button type="button" class="btn btn-teal" id="pdfCropSave" disabled>Attach crop</button>
+              </div>
+              <div id="pdfCropStage" class="pdf-crop-stage" hidden>
+                <canvas id="pdfCropCanvas" aria-label="PDF page: drag to select a diagram"></canvas>
+                <div id="pdfCropRect" class="pdf-crop-rect" hidden></div>
+              </div>
+              <p id="pdfCropStatus" class="muted" role="status">Choose a PDF and extract questions first.</p>
+            </div>
             <div class="button-row"><button class="btn btn-primary" id="pdfCreateTestBtn" type="button">Validate and create CBT</button></div>
           </div>
         </section>
