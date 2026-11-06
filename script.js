@@ -764,6 +764,116 @@ function startSolo(){try{if(!S.pack)throw Error('Import a test code first.');S.s
 function home(){if(S.isHost && S.meta?.status==='started' && Object.keys(S.scores).length<Object.keys(S.members).length && !confirm('You are hosting a live room. Leaving this page stops automatic scoring for friends until you reopen the room. Leave anyway?'))return;clearRoomListeners();S.room=null;S.meta=null;S.paper=null;S.exam=null;S.solo=false;S.isHost=false;S.selectedReportUid=S.uid;urlRoom('');view('home');}
 function downloadFile(filename,contents,mime){const blob=new Blob([contents],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 
+// Browser-only PDF importer. PDF.js extracts selectable text; it cannot OCR scans,
+// rebuild diagrams or guarantee correct option segmentation. All results require review.
+let pdfJsLoader=null;
+async function pdfJs(){
+  if(!pdfJsLoader)pdfJsLoader=import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs').then(lib=>{
+    lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs';
+    return lib;
+  });
+  return pdfJsLoader;
+}
+async function extractPdfText(file){
+  if(!file)return '';
+  if(file.size>25*1024*1024)throw Error('PDF is over the 25 MB browser-import limit.');
+  const lib=await pdfJs(),doc=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+  if(doc.numPages>120)throw Error('Please split PDFs longer than 120 pages.');
+  const pages=[];
+  for(let n=1;n<=doc.numPages;n++){
+    const page=await doc.getPage(n),content=await page.getTextContent();
+    // Rebuild lines from PDF text positions to avoid joining option boundaries.
+    const lines=[];let lastY=null,line='';
+    for(const item of content.items){
+      if(!('str' in item))continue;
+      const y=Math.round(item.transform?.[5]||0);
+      if(lastY!==null&&Math.abs(y-lastY)>3){if(line.trim())lines.push(line.trim());line='';}
+      line+=(line&& !item.str.startsWith(' ')?' ':'')+item.str;
+      lastY=y;
+      if(item.hasEOL){if(line.trim())lines.push(line.trim());line='';lastY=null;}
+    }
+    if(line.trim())lines.push(line.trim());
+    pages.push(lines.join('\n'));
+    if(n%10===0)$('pdfImportStatus').textContent=`Extracted ${n} of ${doc.numPages} pages…`;
+  }
+  return pages.join('\n');
+}
+function questionsFromPdfText(text){
+  const lines=text.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+  const questions=[];let current=null,subject='General',activeOption=-1;
+  const finish=()=>{if(current){if(!current.text)current.text='[Review missing question text]';questions.push(current);}current=null;activeOption=-1;};
+  for(const line of lines){
+    if(/^(physics|chemistry|mathematics|maths)\s*(?:section|part)?\s*[:\-]?$/i.test(line)){
+      subject=/math/i.test(line)?'Mathematics':/^physics/i.test(line)?'Physics':'Chemistry';continue;
+    }
+    const q=line.match(/^(?:Q(?:uestion)?\.?\s*)?(\d{1,3})\s*[.):-]\s*(.+)$/i);
+    if(q&&Number(q[1])>=1 && Number(q[1])<=300 && (line.match(/^(?:Q(?:uestion)?\.?\s*)/i)||Number(q[1])===questions.length+1)){
+      finish();current={id:'Q'+q[1],subject,type:'single',text:q[2],options:[],answer:''};continue;
+    }
+    if(!current)continue;
+    const option=line.match(/^(?:\(?([A-D])\)|([A-D])[.):])\s*(.+)$/i);
+    if(option){
+      const letter=(option[1]||option[2]).toUpperCase(),idx='ABCD'.indexOf(letter);
+      if(idx>=0){current.options[idx]=option[3];activeOption=idx;continue;}
+    }
+    if(activeOption>=0&&current.options[activeOption]!=null)current.options[activeOption]+=' '+line;
+    else current.text+=' '+line;
+  }
+  finish();
+  return questions.filter(q=>q.options.filter(x=>String(x||'').trim()).length>=2);
+}
+function answersFromPdfText(text){
+  const matches=[...text.matchAll(/(?:^|\n)\s*(\d{1,3})\s*[.):\-]?\s*(?:Ans(?:wer)?\s*[:\-]?\s*)?\(?([A-D])\)?\s*(?=\n|$)/gi)];
+  return matches.map(x=>x[1]+' '+x[2].toUpperCase()).join('\n');
+}
+async function extractPdfDraft(){
+  const paper=$('pdfQuestionFile').files?.[0];
+  if(!paper)throw Error('Select a question paper PDF first.');
+  $('pdfExtractBtn').disabled=true;
+  try{
+    $('pdfImportStatus').textContent='Extracting selectable text from question paper…';
+    const text=await extractPdfText(paper);
+    if(text.trim().length<80)throw Error('No usable selectable text found. This may be a scanned PDF; OCR is not included yet.');
+    const questions=questionsFromPdfText(text);
+    if(!questions.length)throw Error('PDF text was found, but no reliable MCQ blocks were recognized. Try a numbered paper or convert it to editable JSON.');
+    const draft={version:1,title:$('pdfTestTitle').value.trim()||paper.name.replace(/\.pdf$/i,''),durationMinutes:Number($('pdfTestDuration').value)||180,marking:{correct:4,wrong:-1},questions};
+    $('pdfDraftJson').value=JSON.stringify(draft,null,2);
+    $('pdfDraftEditor').hidden=false;
+    $('pdfImportStatus').textContent=`Found ${questions.length} possible MCQs (text only). Review the JSON and all answers before creating a test; diagrams are not preserved.`;
+    const key=$('pdfAnswerFile').files?.[0];
+    if(key){
+      $('pdfImportStatus').textContent+=' Extracting answer-key PDF…';
+      const keyText=await extractPdfText(key);
+      const draftAnswers=answersFromPdfText(keyText);
+      if(draftAnswers)$('pdfKeyText').value=draftAnswers;
+      $('pdfImportStatus').textContent+=draftAnswers?' Key candidates added—verify them.':' No simple numbered A–D key recognized; paste answers manually.';
+    }
+  }finally{$('pdfExtractBtn').disabled=false;}
+}
+function createPdfPack(){
+  const draft=JSON.parse($('pdfDraftJson').value);
+  if(!draft.questions?.length)throw Error('No questions found in edited JSON.');
+  const map=new Map(),lines=$('pdfKeyText').value.split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+  for(const [i,line] of lines.entries()){
+    const numbered=line.match(/^(\d{1,3})\s*[.):\-]?\s+(?:Ans(?:wer)?\s*[:\-]?\s*)?(.+)$/i);
+    const number=numbered?Number(numbered[1]):i+1,ans=(numbered?numbered[2]:line).trim().replace(/^\((.*)\)$/,'$1').toUpperCase();
+    if(map.has(number))throw Error('Duplicate answer for question '+number);
+    map.set(number,ans);
+  }
+  draft.questions.forEach((q,i)=>{
+    // The editor can include verified answers; supplied key overrides those answers.
+    if(map.has(i+1))q.answer=map.get(i+1);
+    if(q.type==='numerical'&&q.answer!=='')q.answer=Number(q.answer);
+    if(q.type==='multi'&&typeof q.answer==='string')q.answer=q.answer.replace(/[^A-F]/g,'').split('');
+    if(q.answer==null||q.answer===''||(Array.isArray(q.answer)&&!q.answer.length))throw Error(`Missing answer for question ${i+1}. Add a verified answer before importing.`);
+    if(!q.options?.length&&q.type!=='numerical')throw Error(`Question ${i+1} has no options. Edit the JSON before importing.`);
+  });
+  importPack(draft);
+  $('pdfImportStatus').textContent='Test created. Preview the imported questions and answers before starting a live room.';
+}
+$('pdfExtractBtn').addEventListener('click',()=>extractPdfDraft().catch(e=>{$('pdfImportStatus').textContent='PDF import error: '+errorMessage(e);toast(errorMessage(e),true);}));
+$('pdfCreateTestBtn').addEventListener('click',()=>{try{createPdfPack();}catch(e){$('pdfImportStatus').textContent='Validation: '+errorMessage(e);toast(errorMessage(e),true);}});
+
 // DOM EVENTS
 $('importBtn').addEventListener('click',()=>{try{importPack(parsePack($('packInput').value));}catch(e){status(e.message,true);}});
 $('demoBtn').addEventListener('click',()=>importPack(DEMO_PACK));
