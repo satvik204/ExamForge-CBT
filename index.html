@@ -14,7 +14,7 @@
     window.MathJax = { tex: { inlineMath: [['\\(', '\\)'], ['$', '$']], displayMath: [['\\[', '\\]']] }, options: { skipHtmlTags: ['script','noscript','style','textarea','pre','code'] }, startup: { typeset: false } };
   </script>
   <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-  <script type="module" src="script.js?v=13"></script>
+  <script type="module" src="script.js?v=14"></script>
   
 </head>
 <body>
@@ -45,9 +45,18 @@
 
         <div class="dashboard-grid">
           <section class="panel panel-large"><div class="panel-heading"><div><span class="section-tag">01 / GET THE PAPER</span><h2>Import a test code</h2><p>Paste an <code>EF1:</code> test code from this chat, or structured JSON containing questions <em>and correct answers</em>.</p></div><span class="panel-icon">{ }</span></div>
-            <label for="packInput" class="sr-only">ExamForge test code or JSON</label><textarea id="packInput" spellcheck="false" placeholder="Paste your EF1:… test code or JSON here. No PDF required."></textarea>
+            <label for="packInput" class="sr-only">ExamForge test code or JSON</label><textarea id="packInput" spellcheck="false" placeholder="Paste your EF1:… test code or JSON here. Question paper PDF can be attached separately below."></textarea>
             <div class="button-row"><button class="btn btn-primary" id="importBtn">↳ Import test</button><button class="btn btn-secondary" id="demoBtn">Load 6-question demo</button><button class="btn btn-ghost" id="exportBtn">Copy test code</button><button class="btn btn-ghost" id="clearBtn">Clear</button></div>
             <div id="packStatus" role="status" class="inline-status" hidden></div><div id="packSummary" class="pack-summary" hidden></div>
+            <section class="pdf-enhancement-section" aria-labelledby="paperPdfHeading">
+              <span class="section-tag">OPTIONAL / ORIGINAL PAPER</span>
+              <h3 id="paperPdfHeading">Add question paper PDF</h3>
+              <p>Import your EF1 above, then attach the original question paper. Everyone in your live room can open this PDF with the Test paper button during the exam. Do not attach the answer key.</p>
+              <label for="paperPdfInput">Choose PDF (maximum 5 MiB)</label>
+              <input type="file" id="paperPdfInput" accept=".pdf,application/pdf" />
+              <p id="paperPdfStatus" role="status" aria-live="polite">No PDF attached. Optional: upload the original question paper only.</p>
+              <button type="button" class="btn btn-outline ef-paper-control" id="removePaperPdfBtn" disabled>Remove attached PDF</button>
+            </section>
           </section>
           <section class="panel side-panel"><span class="section-tag">02 / GO LIVE</span><h2>Host or join</h2><p>One person imports the paper. Friends just open the invite link.</p><label for="nameInput">Your display name</label><input id="nameInput" maxlength="30" placeholder="e.g., Satvik" autocomplete="nickname" />
             <div class="toggles"><label class="toggle-line"><input id="shareReportToggle" type="checkbox" checked /> Let submitted participants compare detailed reports in this live room (during scoring and until they leave the results session)</label><label class="toggle-line"><input id="examChatToggle" type="checkbox" /> Allow chat during exam</label></div>
