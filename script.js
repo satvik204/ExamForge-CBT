@@ -213,7 +213,7 @@ function parsePack(code) {
   return normalizePack(JSON.parse(code));
 }
 function publicPaper(pack) {
-  return {title:pack.title,...(pack.paperUrl?{paperUrl:pack.paperUrl}:{}),questions:pack.questions.map(({id,subject,type,text,image,options,bonus,paperPage})=>({id,subject,type,text,image,options,bonus,...(paperPage?{paperPage}:{})}))};
+  return {title:pack.title,...(pack.paperUrl?{paperUrl:pack.paperUrl}:{}),...(efAttachment?.pack===pack?{paperDocument:efAttachment.document}:{}),questions:pack.questions.map(({id,subject,type,text,image,options,bonus,paperPage})=>({id,subject,type,text,image,options,bonus,...(paperPage?{paperPage}:{})}))};
 }
 
 /* Read-only paper and image viewers. No answer data is rendered or shared. */
@@ -263,6 +263,43 @@ function addZoomImage(parent,src,alt,compact=false){
 }
 
 let efPdfModule,efLocalPdf=null,efLocalPdfTitle='';
+const EF_PDF_LIMIT=5*1024*1024;
+let efAttachment=null,efAttachmentSerial=0,efAttachmentBusy=false;
+function resetPaperAttachment(){
+  efAttachmentSerial++;efAttachment=null;efAttachmentBusy=false;
+  efLocalPdf=null;efLocalPdfTitle='';
+  const input=$('paperPdfInput');if(input)input.value='';
+  const label=$('paperPdfStatus');if(label)label.textContent='No PDF attached. Optional: upload the original question paper only.';
+  const remove=$('removePaperPdfBtn');if(remove)remove.disabled=true;
+}
+function pdfBlobFromPaper(p){
+  const item=p?.paperDocument;
+  if(!item||typeof item.base64!=='string'||item.base64.length>Math.ceil(EF_PDF_LIMIT/3)*4||!item.base64.length)return null;
+  try{
+    const raw=atob(item.base64);
+    if(raw.length!==item.size||raw.length>EF_PDF_LIMIT||!raw.slice(0,1024).includes('%PDF-'))return null;
+    const data=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)data[i]=raw.charCodeAt(i);
+    return new Blob([data],{type:'application/pdf'});
+  }catch{return null;}
+}
+async function attachOriginalPaper(file){
+  if(!S.pack){resetPaperAttachment();toast('Import the EF1 test code first.',true);return;}
+  resetPaperAttachment();const serial=efAttachmentSerial,pack=S.pack;
+  efAttachmentBusy=true;setText('paperPdfStatus','Checking and attaching PDF…');
+  $('removePaperPdfBtn').disabled=false;
+  try{
+    if(!file.size||file.size>EF_PDF_LIMIT)throw Error('Choose a PDF no larger than 5 MiB. Compress a larger PDF first.');
+    const data=new Uint8Array(await file.arrayBuffer());
+    if(!new TextDecoder().decode(data.subarray(0,1024)).includes('%PDF-'))throw Error('This is not a valid PDF file.');
+    let binary='';for(let i=0;i<data.length;i+=8192)binary+=String.fromCharCode(...data.subarray(i,i+8192));
+    const document={name:cleanText(file.name,150)||'question-paper.pdf',size:data.length,base64:btoa(binary)};
+    if(serial!==efAttachmentSerial||S.pack!==pack)return;
+    efAttachment={pack,document};
+    setText('paperPdfStatus',document.name+' · '+(data.length/1048576).toFixed(2)+' MiB · Ready to share with room members');
+    $('removePaperPdfBtn').disabled=false;
+  }catch(e){if(serial===efAttachmentSerial){setText('paperPdfStatus',e.message);$('removePaperPdfBtn').disabled=true;}}
+  finally{if(serial===efAttachmentSerial)efAttachmentBusy=false;}
+}
 async function pdfModule(){
   if(!efPdfModule)efPdfModule=import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs').then(m=>{m.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';return m;}).catch(e=>{efPdfModule=null;throw e;});
   return efPdfModule;
@@ -288,7 +325,7 @@ function renderQuestionList(body,p){
 function openTestPaper(page){
   const p=S.paper;if(!p?.questions?.length)return;
   const {bar,body,d}=makeViewer('Complete test paper');
-  const url=paperLink(p.paperUrl);let generation=0,doc=null,zoom=1;
+  const url=paperLink(p.paperUrl);const attached=pdfBlobFromPaper(p);let generation=0,doc=null,zoom=1;
   let pageEls=[],observer=null;
   const cleanup=()=>{generation++;observer?.disconnect();observer=null;if(doc){const old=doc;doc=null;old.destroy().catch(()=>{});}};
   d.addEventListener('close',cleanup);
@@ -298,7 +335,11 @@ function openTestPaper(page){
   const zoomText=addText('span','','100%');
   bar.append(viewerButton('−',()=>setZoom(zoom-.25)),zoomText,viewerButton('+',()=>setZoom(zoom+.25)),viewerButton('Fit',()=>setZoom(1)));
   bar.append(viewerButton('Question list',showList));
-  if(url)bar.append(viewerAnchor('Open original PDF',url));
+  if(attached){
+    const objectUrl=URL.createObjectURL(attached);
+    const link=viewerAnchor('Download original PDF',objectUrl);link.download=p.paperDocument.name||'question-paper.pdf';bar.append(link);
+    d.addEventListener('close',()=>URL.revokeObjectURL(objectUrl));
+  }else if(url)bar.append(viewerAnchor('Open original PDF',url));
   async function showPdf(source){
     cleanup();const current=generation;pageEls=[];note('Loading original PDF…');
     try{
@@ -326,12 +367,12 @@ function openTestPaper(page){
       const target=pageEls[Math.max(0,Math.min(pageEls.length-1,Number(page||1)-1))];if(target){target.scrollIntoView({block:'start'});paint(target);}
     }catch(e){
       if(current!==generation)return;
-      note('The PDF could not be loaded here. The publisher may block cross-origin access, or the connection may be unavailable. Download the original PDF and choose Load local PDF, or use Question list.');
+      note('The PDF could not be rendered. Check your internet connection for the PDF viewer, download the original PDF if available, or use Question list.');
     }
   }
   bar.append(viewerButton('Load local PDF',()=>selectLocalPdf(file=>{efLocalPdf=file;efLocalPdfTitle=p.title;showPdf(file);})));
-  if(url)bar.append(viewerButton('Original pages',()=>showPdf(url)));
-  if(efLocalPdf&&efLocalPdfTitle===p.title)showPdf(efLocalPdf);else if(url)showPdf(url);else showList();
+  if(attached||url)bar.append(viewerButton('Original pages',()=>showPdf(attached||url)));
+  if(attached)showPdf(attached);else if(efLocalPdf&&efLocalPdfTitle===p.title)showPdf(efLocalPdf);else if(url)showPdf(url);else showList();
 }
 /* Build a private EF1 with actual crops from a locally supplied NTA-format PDF.
    Detect all numbered headers before changing the imported pack. */
@@ -408,7 +449,7 @@ function addText(tag,cls,text){const el=document.createElement(tag);if(cls)el.cl
 function typeset(el){if(window.MathJax?.typesetPromise) window.MathJax.typesetPromise([el]).catch(()=>{});}
 function setText(id,text){$(id).textContent=text;}
 async function copyText(text){try{await navigator.clipboard.writeText(text);toast('Copied to clipboard!');}catch{toast('Clipboard unavailable. Select and copy the text manually.',true);}}
-function importPack(pack){S.pack=normalizePack(pack);$('packInput').value=JSON.stringify(S.pack,null,2);$('previewPanel').hidden=false;
+function importPack(pack){const next=normalizePack(pack);resetPaperAttachment();S.pack=next;$('packInput').value=JSON.stringify(S.pack,null,2);$('previewPanel').hidden=false;
   setText('previewTitle',S.pack.title);setText('previewMeta',`${S.pack.questions.length} questions · ${S.pack.durationMinutes} min · +${S.pack.marking.correct}/${S.pack.marking.wrong} marks`);
   $('packSummary').hidden=false;$('packSummary').replaceChildren(...[
     `${S.pack.questions.length} questions`,`${new Set(S.pack.questions.map(q=>q.subject)).size} sections`,`${S.pack.durationMinutes} minutes`].map(x=>addText('span','',x)));
@@ -575,17 +616,17 @@ function urlRoom(code){const u=new URL(location.href);if(code)u.searchParams.set
 function roomName(uid){return S.members?.[uid]?.name || (uid===S.uid?displayName():'Member');}
 async function createRoom(){
   try{
-    requireLive(); if(!S.pack)throw Error('Import a valid test code first.');const name=displayName();if(!name)throw Error('Enter your display name.');
+    requireLive(); if(!S.pack)throw Error('Import a valid test code first.');if(efAttachmentBusy)throw Error('Wait for the PDF attachment to finish.');const pack=S.pack,paper=publicPaper(pack);const name=displayName();if(!name)throw Error('Enter your display name.');
     $('createRoomBtn').disabled=true;
     localStorage.setItem('ef-display-name',name);
     const room=makeRoomCode();
-    const meta={hostUid:S.uid,title:S.pack.title,status:'lobby',durationMinutes:S.pack.durationMinutes,marking:S.pack.marking,shareReports:$('shareReportToggle').checked,examChat:$('examChatToggle').checked,createdAt:serverTimestamp()};
+    const meta={hostUid:S.uid,title:pack.title,status:'lobby',durationMinutes:pack.durationMinutes,marking:pack.marking,shareReports:$('shareReportToggle').checked,examChat:$('examChatToggle').checked,createdAt:serverTimestamp()};
     // Each write is authorized separately. Keep key only in the host's browser.
     await set(ref(S.db,`rooms/${room}/meta`),meta);
-    await set(ref(S.db,`rooms/${room}/paper`),publicPaper(S.pack));
+    await set(ref(S.db,`rooms/${room}/paper`),paper);
     await set(ref(S.db,`rooms/${room}/members/${S.uid}`),{name,joinedAt:serverTimestamp()});
-    try{localStorage.setItem(`ef-host-paper:${room}`,JSON.stringify(S.pack));}catch{toast('Storage is full: keep the host tab open until all exams are scored.',true);}
-    await enterRoom(room);toast('Room created! Share the invite with your friends.');
+    try{localStorage.setItem(`ef-host-paper:${room}`,JSON.stringify(pack));}catch{toast('Storage is full: keep the host tab open until all exams are scored.',true);}
+    S.pack=pack;await enterRoom(room);toast('Room created! Share the invite with your friends.');
   }catch(e){toast(errorMessage(e),true);}finally{$('createRoomBtn').disabled=false;}
 }
 function getRoomCode(text){let raw=cleanText(text,1000);try{if(raw.includes('?room='))raw=new URL(raw).searchParams.get('room')||raw;}catch{}return raw.replace(/[^A-Za-z0-9]/g,'').toUpperCase();}
@@ -710,7 +751,7 @@ function renderExam(){if(!S.exam||!S.paper)return;const q=S.paper.questions[S.cu
   setText('questionTypeTag',q.type==='numerical'?'Numerical value':q.type==='multi'?'Multiple correct':'Single correct');
   const body=$('questionBody');body.replaceChildren(addText('div','',q.text||'[Image question]'));
   addZoomImage(body,q.image,`Illustration for question ${S.currentIdx+1}`);
-  if(validPaperUrl(S.paper.paperUrl)&&q.paperPage)body.append(viewerButton('View question page '+q.paperPage,()=>openTestPaper(q.paperPage)));
+  if((S.paper.paperDocument||validPaperUrl(S.paper.paperUrl))&&q.paperPage)body.append(viewerButton('View question page '+q.paperPage,()=>openTestPaper(q.paperPage)));
   const opts=$('questionOptions');opts.replaceChildren();const selected=S.exam.answers[S.currentIdx];
   if(q.type==='numerical'){
     opts.append(addText('label','numeric-label','Enter your numerical answer:'));
@@ -944,17 +985,17 @@ function renderReport(report){if(!report)return;setText('reportHeading',`${roomN
     if(q.explanation)item.append(addText('p','',`Explanation: ${q.explanation}`));qs.append(item);
   }typeset(qs);
 }
-function startSolo(){try{if(!S.pack)throw Error('Import a test code first.');S.solo=true;S.room=null;S.paper=publicPaper(S.pack);S.meta=null;S.exam=null;S.myReport=null;S.reportCache={};S.scores={};S.members={};S.currentIdx=0;S.uid=S.uid||'solo';S.soloStartedAt=Date.now();S.selectedReportUid=S.uid||'solo';localStorage.removeItem(attemptStorageKey());beginExam(true);}catch(e){toast(errorMessage(e),true);}}
+function startSolo(){try{if(!S.pack)throw Error('Import a test code first.');if(efAttachmentBusy)throw Error('Wait for the PDF attachment to finish.');S.solo=true;S.room=null;S.paper=publicPaper(S.pack);S.meta=null;S.exam=null;S.myReport=null;S.reportCache={};S.scores={};S.members={};S.currentIdx=0;S.uid=S.uid||'solo';S.soloStartedAt=Date.now();S.selectedReportUid=S.uid||'solo';localStorage.removeItem(attemptStorageKey());beginExam(true);}catch(e){toast(errorMessage(e),true);}}
 function home(){if(S.isHost && S.meta?.status==='started' && Object.keys(S.scores).length<Object.keys(S.members).length && !confirm('You are hosting a live room. Leaving this page stops automatic scoring for friends until you reopen the room. Leave anyway?'))return;clearRoomListeners();S.room=null;S.meta=null;S.paper=null;S.exam=null;S.solo=false;S.isHost=false;S.selectedReportUid=S.uid;urlRoom('');view('home');}
 function downloadFile(filename,contents,mime){const blob=new Blob([contents],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 
 // DOM EVENTS
 $('importBtn').addEventListener('click',()=>{try{importPack(parsePack($('packInput').value));}catch(e){status(e.message,true);}});
 $('demoBtn').addEventListener('click',()=>importPack(DEMO_PACK));
-const attachPdfBtn=viewerButton('Add PDF question images',()=>selectLocalPdf(file=>attachNtaImages(file,attachPdfBtn)));$('importBtn').after(attachPdfBtn);
-const saveImageEfBtn=viewerButton('Download image EF1',()=>{if(!S.pack)return toast('Import a test first.',true);downloadFile('ExamForge-with-images-EF1.txt',encodePack(S.pack),'text/plain');});attachPdfBtn.after(saveImageEfBtn);
+$('paperPdfInput').addEventListener('change',()=>{const f=$('paperPdfInput').files?.[0];if(f)attachOriginalPaper(f);});
+$('removePaperPdfBtn').addEventListener('click',resetPaperAttachment);
 $('exportBtn').addEventListener('click',()=>{if(!S.pack)return toast('Import a test first.',true);copyText(encodePack(S.pack));});
-$('clearBtn').addEventListener('click',()=>{$('packInput').value='';S.pack=null;$('packSummary').hidden=true;$('previewPanel').hidden=true;$('packStatus').hidden=true;});
+$('clearBtn').addEventListener('click',()=>{$('packInput').value='';S.pack=null;resetPaperAttachment();$('packSummary').hidden=true;$('previewPanel').hidden=true;$('packStatus').hidden=true;});
 $('downloadJsonBtn').addEventListener('click',()=>{if(!S.pack)return;downloadFile('examforge-test.json',JSON.stringify(S.pack,null,2),'application/json');});
 $('copyRulesBtn').addEventListener('click',()=>copyText(JSON.stringify(DATABASE_RULES,null,2)));
 $('createRoomBtn').addEventListener('click',createRoom);
