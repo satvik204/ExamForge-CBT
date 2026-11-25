@@ -190,9 +190,10 @@ function normalizePack(input) {
     const tolerance=type==='numerical'?numeric(q.tolerance??0.001,'Tolerance',0,100):0;
     const marks=q.marks == null ? correct : numeric(q.marks,`Question ${i+1} marks`,0,20);
     const negativeMarks=q.negativeMarks == null ? wrong : numeric(q.negativeMarks,`Question ${i+1} negative marks`,-20,0);
-    return { id: cleanText(q.id || `Q${i+1}`,40), subject,type,text,image,options,answer,tolerance,marks,negativeMarks,explanation:cleanText(q.explanation,7000),bonus:Boolean(q.bonus) };
+    return { id: cleanText(q.id || `Q${i+1}`,40), subject,type,text,image,options,answer,tolerance,marks,negativeMarks,explanation:cleanText(q.explanation,7000),bonus:Boolean(q.bonus),...(Number.isInteger(Number(q.paperPage))&&Number(q.paperPage)>=1&&Number(q.paperPage)<=1000?{paperPage:Number(q.paperPage)}:{}) };
   });
   const pack={version:1,title,durationMinutes,marking:{correct,wrong},questions};
+  const paperUrl=validPaperUrl(input.paperUrl); if(paperUrl)pack.paperUrl=paperUrl;
   if (JSON.stringify(pack).length>900000) throw Error('This test is too large for a live room. Reduce image/text length or split the paper.');
   return pack;
 }
@@ -212,8 +213,79 @@ function parsePack(code) {
   return normalizePack(JSON.parse(code));
 }
 function publicPaper(pack) {
-  return {title:pack.title,questions:pack.questions.map(({id,subject,type,text,image,options,bonus})=>({id,subject,type,text,image,options,bonus}))};
+  return {title:pack.title,...(pack.paperUrl?{paperUrl:pack.paperUrl}:{}),questions:pack.questions.map(({id,subject,type,text,image,options,bonus,paperPage})=>({id,subject,type,text,image,options,bonus,...(paperPage?{paperPage}:{})}))};
 }
+
+/* Read-only paper and image viewers. No answer data is rendered or shared. */
+function validPaperUrl(value){
+  try{const u=new URL(String(value||''));return u.protocol==='https:'&&!u.username&&!u.password&&u.href.length<=2000?u.href:'';}catch{return '';}
+}
+function paperLink(url,page){
+  const link=validPaperUrl(url);if(!link)return '';
+  const u=new URL(link);u.hash=page?'page='+page:'';return u.href;
+}
+function viewerButton(label,action){
+  const b=document.createElement('button');b.type='button';b.className='btn btn-outline';b.textContent=label;b.onclick=action;return b;
+}
+function viewerAnchor(label,url){
+  const a=document.createElement('a');a.className='btn btn-outline';a.textContent=label;a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;
+}
+function makeViewer(title){
+  const d=document.createElement('dialog');
+  d.setAttribute('aria-label',title);
+  Object.assign(d.style,{width:'min(96vw,1100px)',maxWidth:'96vw',height:'min(90vh,900px)',maxHeight:'90vh',padding:'12px',border:'1px solid #64748b',borderRadius:'12px',background:'Canvas',color:'CanvasText',overflow:'hidden',boxSizing:'border-box'});
+  const bar=document.createElement('div');Object.assign(bar.style,{display:'flex',flexWrap:'wrap',alignItems:'center',gap:'8px',paddingBottom:'8px'});
+  const h=document.createElement('strong');h.textContent=title;h.style.flex='1';bar.append(h);
+  const body=document.createElement('div');Object.assign(body.style,{overflow:'auto',flex:'1',minHeight:'0',overscrollBehavior:'contain'});
+  const wrapper=document.createElement('div');Object.assign(wrapper.style,{display:'flex',flexDirection:'column',height:'100%',minHeight:'0'});
+  const close=viewerButton('Close',()=>d.close());bar.append(close);wrapper.append(bar,body);d.append(wrapper);
+  d.addEventListener('close',()=>{d.remove();});
+  document.body.append(d);d.showModal();return {d,bar,body};
+}
+function openImageZoom(src,alt){
+  if(!safeImage(src))return;
+  const {bar,body}=makeViewer('Image zoom');
+  const img=document.createElement('img');img.src=src;img.alt=alt||'Question illustration';
+  Object.assign(img.style,{display:'block',maxWidth:'none',height:'auto',margin:'0 auto'});
+  let zoom=1;
+  function apply(){img.style.width=Math.round(zoom*100)+'%';label.textContent=Math.round(zoom*100)+'%';}
+  const label=document.createElement('span');label.setAttribute('aria-live','polite');
+  bar.append(viewerButton('−',()=>{zoom=Math.max(.5,zoom-.25);apply();}),label,viewerButton('+',()=>{zoom=Math.min(4,zoom+.25);apply();}),viewerButton('Fit',()=>{zoom=1;apply();}));
+  body.append(img);apply();
+}
+function addZoomImage(parent,src,alt,compact=false){
+  if(!safeImage(src))return;
+  const b=document.createElement('button');b.type='button';b.title='Click to zoom image';b.setAttribute('aria-label','Zoom '+alt);
+  Object.assign(b.style,{display:'block',maxWidth:'100%',border:0,background:'transparent',padding:'0',cursor:'zoom-in',textAlign:'left'});
+  const img=document.createElement('img');img.src=src;img.alt=alt;img.loading='lazy';img.style.maxWidth='100%';img.style.height='auto';if(compact)img.style.maxHeight='250px';
+  const caption=document.createElement('span');caption.textContent='Click image to zoom';caption.style.display='block';caption.style.fontSize='12px';caption.style.opacity='.8';
+  b.append(img,caption);b.onclick=()=>openImageZoom(src,alt);parent.append(b);
+}
+function openTestPaper(page){
+  const p=S.paper;if(!p?.questions?.length)return;
+  const {bar,body,d}=makeViewer(page?'Question paper – page '+page:'Complete test paper');
+  const url=paperLink(p.paperUrl,page);
+  if(url){
+    const external=viewerAnchor('Open PDF in new tab',url);bar.append(external);
+    if(page)bar.append(viewerAnchor('Full PDF',paperLink(p.paperUrl)));
+    const hint=document.createElement('p');hint.textContent='The PDF opens at the selected page when supported. Scroll to the next page if the question continues. If the preview is blocked or blank, use Open PDF in new tab.';body.append(hint);
+    const f=document.createElement('iframe');f.title='Original question paper PDF';f.src=url;f.referrerPolicy='no-referrer';
+    Object.assign(f.style,{width:'100%',height:'calc(100% - 60px)',minHeight:'280px',border:'1px solid #64748b',background:'#fff'});
+    body.append(f);d.addEventListener('close',()=>{f.src='about:blank';});return;
+  }
+  const list=document.createElement('div');
+  p.questions.forEach((q,i)=>{
+    const section=document.createElement('section');Object.assign(section.style,{borderBottom:'1px solid #64748b',padding:'14px 4px'});
+    const header=document.createElement('strong');header.textContent='Q'+(i+1)+' · '+(q.subject||'General');section.append(header);
+    if(q.text)section.append(addText('div','question-body',q.text));
+    addZoomImage(section,q.image,'Question '+(i+1));
+    (q.options||[]).forEach((option,j)=>section.append(addText('div','',ABC[j]+'. '+option)));
+    if(q.type==='numerical')section.append(addText('div','muted','Numerical answer'));
+    list.append(section);
+  });
+  body.append(list);typeset(list);
+}
+
 function view(name) {
   S.view=name; for(const x of ['home','room','exam','results']) $(`${x}View`).hidden=x!==name;
   window.scrollTo({top:0,behavior:'instant'});
@@ -235,7 +307,7 @@ function importPack(pack){S.pack=normalizePack(pack);$('packInput').value=JSON.s
     if(i>=20){node.append(addText('p','muted',`...and ${S.pack.questions.length-20} more questions ready.`));break;}
     const box=addText('article','preview-item','');box.append(addText('div','mini',`${i+1} · ${q.subject} · ${q.type} · Answer: ${Array.isArray(q.answer)?q.answer.join(','):q.answer}`),addText('p','',q.text || '[image question]'));
     if(q.options.length)box.append(addText('div','option-lines',q.options.map((o,j)=>`${ABC[j]}. ${o}`).join('\n')));
-    if(safeImage(q.image)){const img=document.createElement('img');img.src=q.image;img.alt='Diagram for question '+(i+1);img.loading='lazy';img.style.maxWidth='100%';img.style.maxHeight='250px';box.append(img);}
+    addZoomImage(box,q.image,'Diagram for question '+(i+1),true);
     node.append(box);
   }
   typeset(node);status(`${S.pack.questions.length} questions imported with answer key. Preview before hosting.`);
@@ -527,7 +599,8 @@ function renderExam(){if(!S.exam||!S.paper)return;const q=S.paper.questions[S.cu
   setText('questionNumber',`Question ${S.currentIdx+1} of ${S.paper.questions.length}${q.bonus?' · DROPPED (+4 bonus)':''}`);
   setText('questionTypeTag',q.type==='numerical'?'Numerical value':q.type==='multi'?'Multiple correct':'Single correct');
   const body=$('questionBody');body.replaceChildren(addText('div','',q.text||'[Image question]'));
-  if(safeImage(q.image)){const img=document.createElement('img');img.src=q.image;img.alt=`Illustration for question ${S.currentIdx+1}`;img.loading='lazy';body.append(img);}
+  addZoomImage(body,q.image,`Illustration for question ${S.currentIdx+1}`);
+  if(validPaperUrl(S.paper.paperUrl)&&q.paperPage)body.append(viewerButton('View question page '+q.paperPage,()=>openTestPaper(q.paperPage)));
   const opts=$('questionOptions');opts.replaceChildren();const selected=S.exam.answers[S.currentIdx];
   if(q.type==='numerical'){
     opts.append(addText('label','numeric-label','Enter your numerical answer:'));
@@ -784,6 +857,7 @@ $('prevBtn').addEventListener('click',()=>gotoQuestion(S.currentIdx-1));
 $('saveNextBtn').addEventListener('click',()=>gotoQuestion(Math.min(S.currentIdx+1,S.paper.questions.length-1)));
 $('reviewBtn').addEventListener('click',()=>{if(!S.exam)return;S.exam.review[S.currentIdx]=!S.exam.review[S.currentIdx];saveAttempt();renderExam();});
 $('clearAnswerBtn').addEventListener('click',()=>{if(!S.exam)return;S.exam.answers[S.currentIdx]=null;saveAttempt();renderExam();});
+const testPaperButton=viewerButton('Test paper',()=>openTestPaper());testPaperButton.id='testPaperBtn';$('submitBtn').before(testPaperButton);
 $('submitBtn').addEventListener('click',()=>finalizeSubmission().catch(e=>toast(errorMessage(e),true)));
 $('resultsHomeBtn').addEventListener('click',exitResults);
 $('reportSelect').addEventListener('change',selectReport);
