@@ -225,18 +225,18 @@ function paperLink(url,page){
   const u=new URL(link);u.hash=page?'page='+page:'';return u.href;
 }
 function viewerButton(label,action){
-  const b=document.createElement('button');b.type='button';b.className='btn btn-outline';b.textContent=label;b.onclick=action;return b;
+  const b=document.createElement('button');b.type='button';b.className='btn btn-outline ef-paper-control';b.textContent=label;b.onclick=action;return b;
 }
 function viewerAnchor(label,url){
-  const a=document.createElement('a');a.className='btn btn-outline';a.textContent=label;a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;
+  const a=document.createElement('a');a.className='btn btn-outline ef-paper-control';a.textContent=label;a.href=url;a.target='_blank';a.rel='noopener noreferrer';return a;
 }
 function makeViewer(title){
   const d=document.createElement('dialog');
-  d.setAttribute('aria-label',title);
-  Object.assign(d.style,{width:'min(96vw,1100px)',maxWidth:'96vw',height:'min(90vh,900px)',maxHeight:'90vh',padding:'12px',border:'1px solid #64748b',borderRadius:'12px',background:'Canvas',color:'CanvasText',overflow:'hidden',boxSizing:'border-box'});
+  d.setAttribute('aria-label',title);d.className='ef-paper-dialog';
+  Object.assign(d.style,{width:'min(96vw,1100px)',maxWidth:'96vw',height:'min(90vh,900px)',maxHeight:'90vh',padding:'12px',border:'1px solid #64748b',borderRadius:'12px',background:'#111827',color:'#f1f5f9',overflow:'hidden',boxSizing:'border-box'});
   const bar=document.createElement('div');Object.assign(bar.style,{display:'flex',flexWrap:'wrap',alignItems:'center',gap:'8px',paddingBottom:'8px'});
   const h=document.createElement('strong');h.textContent=title;h.style.flex='1';bar.append(h);
-  const body=document.createElement('div');Object.assign(body.style,{overflow:'auto',flex:'1',minHeight:'0',overscrollBehavior:'contain'});
+  const body=document.createElement('div');body.className='ef-paper-scroll';Object.assign(body.style,{overflow:'auto',flex:'1',minHeight:'0',overscrollBehavior:'contain',touchAction:'pan-x pan-y',scrollbarGutter:'stable'});
   const wrapper=document.createElement('div');Object.assign(wrapper.style,{display:'flex',flexDirection:'column',height:'100%',minHeight:'0'});
   const close=viewerButton('Close',()=>d.close());bar.append(close);wrapper.append(bar,body);d.append(wrapper);
   d.addEventListener('close',()=>{d.remove();});
@@ -258,33 +258,143 @@ function addZoomImage(parent,src,alt,compact=false){
   const b=document.createElement('button');b.type='button';b.title='Click to zoom image';b.setAttribute('aria-label','Zoom '+alt);
   Object.assign(b.style,{display:'block',maxWidth:'100%',border:0,background:'transparent',padding:'0',cursor:'zoom-in',textAlign:'left'});
   const img=document.createElement('img');img.src=src;img.alt=alt;img.loading='lazy';img.style.maxWidth='100%';img.style.height='auto';if(compact)img.style.maxHeight='250px';
-  const caption=document.createElement('span');caption.textContent='Click image to zoom';caption.style.display='block';caption.style.fontSize='12px';caption.style.opacity='.8';
+  const caption=document.createElement('span');caption.textContent='Click image to zoom';caption.style.display='block';caption.style.fontSize='12px';caption.style.opacity='.8';caption.style.color='inherit';b.style.color='inherit';
   b.append(img,caption);b.onclick=()=>openImageZoom(src,alt);parent.append(b);
 }
-function openTestPaper(page){
-  const p=S.paper;if(!p?.questions?.length)return;
-  const {bar,body,d}=makeViewer(page?'Question paper – page '+page:'Complete test paper');
-  const url=paperLink(p.paperUrl,page);
-  if(url){
-    const external=viewerAnchor('Open PDF in new tab',url);bar.append(external);
-    if(page)bar.append(viewerAnchor('Full PDF',paperLink(p.paperUrl)));
-    const hint=document.createElement('p');hint.textContent='The PDF opens at the selected page when supported. Scroll to the next page if the question continues. If the preview is blocked or blank, use Open PDF in new tab.';body.append(hint);
-    const f=document.createElement('iframe');f.title='Original question paper PDF';f.src=url;f.referrerPolicy='no-referrer';
-    Object.assign(f.style,{width:'100%',height:'calc(100% - 60px)',minHeight:'280px',border:'1px solid #64748b',background:'#fff'});
-    body.append(f);d.addEventListener('close',()=>{f.src='about:blank';});return;
-  }
-  const list=document.createElement('div');
+
+let efPdfModule,efLocalPdf=null,efLocalPdfTitle='';
+async function pdfModule(){
+  if(!efPdfModule)efPdfModule=import('https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs').then(m=>{m.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';return m;}).catch(e=>{efPdfModule=null;throw e;});
+  return efPdfModule;
+}
+async function openPdf(source){
+  const m=await pdfModule();return m.getDocument(typeof source==='string'?{url:source}:{data:new Uint8Array(await source.arrayBuffer())}).promise;
+}
+function selectLocalPdf(cb){
+  const input=document.createElement('input');input.type='file';input.accept='application/pdf,.pdf';input.onchange=()=>{if(input.files?.[0])cb(input.files[0]);};input.click();
+}
+function renderQuestionList(body,p){
+  body.replaceChildren();const list=document.createElement('div');
   p.questions.forEach((q,i)=>{
-    const section=document.createElement('section');Object.assign(section.style,{borderBottom:'1px solid #64748b',padding:'14px 4px'});
-    const header=document.createElement('strong');header.textContent='Q'+(i+1)+' · '+(q.subject||'General');section.append(header);
+    const section=document.createElement('section');section.style.cssText='border-bottom:1px solid #475569;padding:16px 4px';
+    section.append(addText('strong','','Q'+(i+1)+' · '+(q.subject||'General')));
     if(q.text)section.append(addText('div','question-body',q.text));
     addZoomImage(section,q.image,'Question '+(i+1));
     (q.options||[]).forEach((option,j)=>section.append(addText('div','',ABC[j]+'. '+option)));
     if(q.type==='numerical')section.append(addText('div','muted','Numerical answer'));
     list.append(section);
-  });
-  body.append(list);typeset(list);
+  });body.append(list);typeset(list);
 }
+function openTestPaper(page){
+  const p=S.paper;if(!p?.questions?.length)return;
+  const {bar,body,d}=makeViewer('Complete test paper');
+  const url=paperLink(p.paperUrl);let generation=0,doc=null,zoom=1;
+  let pageEls=[],observer=null;
+  const cleanup=()=>{generation++;observer?.disconnect();observer=null;if(doc){const old=doc;doc=null;old.destroy().catch(()=>{});}};
+  d.addEventListener('close',cleanup);
+  const showList=()=>{cleanup();renderQuestionList(body,p);};
+  const note=(msg)=>{body.replaceChildren(addText('p','',msg));};
+  function setZoom(value){zoom=Math.max(.5,Math.min(3,value));for(const el of pageEls){el.style.width=Math.round(zoom*100)+'%';}zoomText.textContent=Math.round(zoom*100)+'%';}
+  const zoomText=addText('span','','100%');
+  bar.append(viewerButton('−',()=>setZoom(zoom-.25)),zoomText,viewerButton('+',()=>setZoom(zoom+.25)),viewerButton('Fit',()=>setZoom(1)));
+  bar.append(viewerButton('Question list',showList));
+  if(url)bar.append(viewerAnchor('Open original PDF',url));
+  async function showPdf(source){
+    cleanup();const current=generation;pageEls=[];note('Loading original PDF…');
+    try{
+      const loaded=await openPdf(source);
+      if(current!==generation||!d.open){await loaded.destroy();return;}doc=loaded;
+      const pages=document.createElement('div');pages.className='ef-paper-pages';body.replaceChildren(pages);
+      for(let n=1;n<=doc.numPages;n++){
+        const wrap=document.createElement('section');wrap.className='ef-pdf-page';wrap.dataset.page=String(n);
+        wrap.append(addText('div','ef-pdf-label','Page '+n+' / '+doc.numPages));
+        const canvas=document.createElement('canvas');canvas.setAttribute('aria-label','Original PDF page '+n);canvas.style.aspectRatio='210 / 297';wrap.append(canvas);pages.append(wrap);pageEls.push(wrap);
+      }
+      setZoom(zoom);
+      const activeDoc=doc;
+      async function paint(el){
+        if(el.dataset.rendered||current!==generation)return;el.dataset.rendered='loading';
+        try{
+          const pg=await activeDoc.getPage(Number(el.dataset.page));if(current!==generation)return;
+          const v0=pg.getViewport({scale:1});const v=pg.getViewport({scale:Math.min(3,1800/v0.width)});
+          const canvas=el.querySelector('canvas');canvas.width=Math.ceil(v.width);canvas.height=Math.ceil(v.height);canvas.style.aspectRatio=v.width+' / '+v.height;
+          await pg.render({canvasContext:canvas.getContext('2d'),viewport:v}).promise;el.dataset.rendered='yes';
+        }catch(e){if(current===generation){el.dataset.rendered='error';el.append(addText('p','','Page could not be rendered. Use Open original PDF.'));}}
+      }
+      observer=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){observer?.unobserve(entry.target);paint(entry.target);}}, {root:body,rootMargin:'700px'});
+      for(const el of pageEls)observer.observe(el);
+      const target=pageEls[Math.max(0,Math.min(pageEls.length-1,Number(page||1)-1))];if(target){target.scrollIntoView({block:'start'});paint(target);}
+    }catch(e){
+      if(current!==generation)return;
+      note('The PDF could not be loaded here. The publisher may block cross-origin access, or the connection may be unavailable. Download the original PDF and choose Load local PDF, or use Question list.');
+    }
+  }
+  bar.append(viewerButton('Load local PDF',()=>selectLocalPdf(file=>{efLocalPdf=file;efLocalPdfTitle=p.title;showPdf(file);})));
+  if(url)bar.append(viewerButton('Original pages',()=>showPdf(url)));
+  if(efLocalPdf&&efLocalPdfTitle===p.title)showPdf(efLocalPdf);else if(url)showPdf(url);else showList();
+}
+/* Build a private EF1 with actual crops from a locally supplied NTA-format PDF.
+   Detect all numbered headers before changing the imported pack. */
+async function attachNtaImages(file,button){
+  const original=S.pack;if(!original?.questions?.length){toast('Import the matching EF1 first.',true);return;}
+  let doc=null;button.disabled=true;
+  const progress=(msg)=>status(msg);
+  try{
+    progress('Reading local PDF and checking question numbering…');doc=await openPdf(file);
+    const headers=[],pages=[];
+    for(let n=1;n<=doc.numPages;n++){
+      const page=await doc.getPage(n),v=page.getViewport({scale:1}),tc=await page.getTextContent();
+      const lines=[];
+      for(const item of tc.items){if(!item.str||!item.transform)continue;const xy=v.convertToViewportPoint(item.transform[4],item.transform[5]);let row=lines.find(r=>Math.abs(r.y-xy[1])<2.5);if(!row){row={y:xy[1],h:item.height||10,items:[]};lines.push(row);}row.h=Math.max(row.h,item.height||10);row.items.push({x:xy[0],str:item.str});}
+      for(const row of lines){const text=row.items.sort((a,b)=>a.x-b.x).map(x=>x.str).join(' ');const m=text.match(/Question\s*Number\s*:\s*(\d+)\s+Question\s*Id\s*:\s*(\d+)/i);if(m)headers.push({q:Number(m[1]),id:m[2],page:n,top:Math.max(0,row.y-row.h-3)});}
+      pages.push({width:v.width,height:v.height});
+    }
+    headers.sort((a,b)=>a.page-b.page||a.top-b.top);
+    if(headers.length!==original.questions.length||headers.some((h,i)=>h.q!==i+1))throw Error('Detected '+headers.length+' question headers; expected '+original.questions.length+' consecutive numbers. Use the matching original NTA PDF. No images were changed.');
+    if(original.questions.some((q,i)=>q.paperPage&&Math.abs(q.paperPage-headers[i].page)>0))throw Error('PDF page numbers do not match this EF1. No images were changed.');
+    const crops=[];let cachedPage=0,cachedCanvas=null,scale=1.8;
+    async function raster(n){
+      if(cachedPage===n)return cachedCanvas;
+      const pg=await doc.getPage(n),v=pg.getViewport({scale});const c=document.createElement('canvas');c.width=Math.ceil(v.width);c.height=Math.ceil(v.height);
+      const ctx=c.getContext('2d',{alpha:false});ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+      await pg.render({canvasContext:ctx,viewport:v}).promise;cachedCanvas=c;cachedPage=n;return c;
+    }
+    for(let i=0;i<headers.length;i++){
+      if(S.pack!==original)throw Error('Imported test changed during processing.');
+      const h=headers[i],next=headers[i+1],last=next?next.page:doc.numPages,parts=[];
+      for(let n=h.page;n<=last;n++){
+        const src=await raster(n);const y0=n===h.page?Math.floor(h.top*scale):0;
+        const y1=next&&n===next.page?Math.floor(next.top*scale):src.height;
+        if(y1<=y0+2)continue;
+        const ctx=src.getContext('2d');const pixels=ctx.getImageData(0,y0,src.width,y1-y0).data;let l=src.width,r=-1,t=y1-y0,b=-1;
+        for(let y=0;y<y1-y0;y++)for(let x=0;x<src.width;x++){const k=4*(y*src.width+x);if(Math.min(pixels[k],pixels[k+1],pixels[k+2])<220){if(x<l)l=x;if(x>r)r=x;if(y<t)t=y;if(y>b)b=y;}}
+        if(r<l)continue;
+        l=Math.max(0,l-8);r=Math.min(src.width-1,r+8);t=Math.max(0,t-8);b=Math.min(y1-y0-1,b+8);
+        const part=document.createElement('canvas');part.width=r-l+1;part.height=b-t+1;part.getContext('2d',{alpha:false}).drawImage(src,l,y0+t,part.width,part.height,0,0,part.width,part.height);parts.push(part);
+      }
+      if(!parts.length)throw Error('Empty crop for Q'+(i+1));
+      const c=document.createElement('canvas');c.width=Math.max(...parts.map(p=>p.width));c.height=parts.reduce((a,p)=>a+p.height,0)+8*(parts.length-1);
+      const ctx=c.getContext('2d',{alpha:false});ctx.fillStyle='white';ctx.fillRect(0,0,c.width,c.height);let y=0;for(const part of parts){ctx.drawImage(part,0,y);y+=part.height+8;}
+      crops.push(c);progress('Preparing question images: '+(i+1)+' / '+headers.length);
+      if(i%4===0)await new Promise(r=>setTimeout(r,0));
+    }
+    let pack=null;
+    for(const [width,quality] of [[1100,.8],[1000,.7],[900,.62],[800,.52],[700,.46],[600,.4],[500,.36]]){
+      const questions=original.questions.map((q,i)=>{
+        const src=crops[i],c=document.createElement('canvas');const ratio=Math.min(1,width/src.width);c.width=Math.max(1,Math.round(src.width*ratio));c.height=Math.max(1,Math.round(src.height*ratio));c.getContext('2d',{alpha:false}).drawImage(src,0,0,c.width,c.height);
+        let image=c.toDataURL('image/webp',quality);if(!image.startsWith('data:image/webp'))image=c.toDataURL('image/jpeg',quality);
+        return {...q,image,paperPage:headers[i].page,text:'Question '+(i+1)+' — select the option in the image, or open the original paper if the crop is unclear.'};
+      });
+      const candidate={...original,questions};if(questions.every(q=>q.image.length<=180000)&&JSON.stringify(candidate).length<=890000){pack=candidate;break;}
+    }
+    if(!pack)throw Error('The images exceed the existing room size limit. No images were changed.');
+    if(S.pack!==original)throw Error('Imported test changed during processing.');
+    importPack(pack);efLocalPdf=file;efLocalPdfTitle=pack.title;
+    status('Added '+pack.questions.length+' images. Review the crops against the original PDF before hosting. Use Copy test code or Download image EF1.');
+    downloadFile('ExamForge-with-images-EF1.txt',encodePack(S.pack),'text/plain');
+  }catch(e){status(e.message||String(e),true);}finally{button.disabled=false;if(doc)await doc.destroy().catch(()=>{});}
+}
+
 
 function view(name) {
   S.view=name; for(const x of ['home','room','exam','results']) $(`${x}View`).hidden=x!==name;
@@ -841,6 +951,8 @@ function downloadFile(filename,contents,mime){const blob=new Blob([contents],{ty
 // DOM EVENTS
 $('importBtn').addEventListener('click',()=>{try{importPack(parsePack($('packInput').value));}catch(e){status(e.message,true);}});
 $('demoBtn').addEventListener('click',()=>importPack(DEMO_PACK));
+const attachPdfBtn=viewerButton('Add PDF question images',()=>selectLocalPdf(file=>attachNtaImages(file,attachPdfBtn)));$('importBtn').after(attachPdfBtn);
+const saveImageEfBtn=viewerButton('Download image EF1',()=>{if(!S.pack)return toast('Import a test first.',true);downloadFile('ExamForge-with-images-EF1.txt',encodePack(S.pack),'text/plain');});attachPdfBtn.after(saveImageEfBtn);
 $('exportBtn').addEventListener('click',()=>{if(!S.pack)return toast('Import a test first.',true);copyText(encodePack(S.pack));});
 $('clearBtn').addEventListener('click',()=>{$('packInput').value='';S.pack=null;$('packSummary').hidden=true;$('previewPanel').hidden=true;$('packStatus').hidden=true;});
 $('downloadJsonBtn').addEventListener('click',()=>{if(!S.pack)return;downloadFile('examforge-test.json',JSON.stringify(S.pack,null,2),'application/json');});
