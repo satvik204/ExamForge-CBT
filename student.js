@@ -39,10 +39,15 @@ $('deleteAccountBtn').addEventListener('click',async()=>{
   if(prompt('Type DELETE to confirm account deletion')!=='DELETE')return;
   try{
     await reauthenticateWithPopup(u,new GoogleAuthProvider());
+    // Error Book rules may not yet be published on older deployments.
+    let tagsRemoved=true;
+    try{await remove(ref(db,'errorBookTags/'+u.uid));}
+    catch(e){if(!/permission.denied/i.test(String(e?.code||e?.message||e)))throw e;tagsRemoved=false;}
+    try{localStorage.removeItem('ef-error-book-tags-v1:'+u.uid);localStorage.removeItem('ef-error-book-pending-v1:'+u.uid);}catch{}
     await remove(ref(db,'studentHistory/'+u.uid));
     await remove(ref(db,'soloHistory/'+u.uid));
     await deleteUser(u);
-    rows=[];$('dashboard').hidden=true;status('Account and personal history deleted. Live-room records remain for room integrity.');
+    rows=[];$('dashboard').hidden=true;status('Account and personal history deleted. Live-room records remain for room integrity.'+(tagsRemoved?'':' Error Book cloud cleanup could not be verified; contact the administrator if you used cloud sync.'));
   }catch(e){status('Deletion could not be completed: '+safe(e?.message||e)+'. Personal history may have been partially deleted. Contact the site administrator if you need assistance.',true);}
 });
 $('refreshBtn').addEventListener('click',refresh);
