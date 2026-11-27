@@ -81,6 +81,25 @@
         },
         ".write": "auth != null && auth.uid === $uid && !newData.exists()"
       }
+    },
+    "errorBookTags": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous'",
+        ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && !newData.exists()",
+        "$entry": {
+          ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && newData.exists()",
+          ".validate": "newData.hasChildren(['chapter','note']) && newData.child('chapter').isString() && newData.child('chapter').val().length <= 100 && newData.child('note').isString() && newData.child('note').val().length <= 1000",
+          "chapter": {
+            ".validate": "newData.isString()"
+          },
+          "note": {
+            ".validate": "newData.isString()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
     }
   }
 }
