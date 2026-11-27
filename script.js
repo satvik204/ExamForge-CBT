@@ -1013,6 +1013,7 @@ const EB_CHAPTERS = [
  ['Chemistry','Redox Reactions',/\b(redox reactions?|oxidation number|oxidation state|disproportionation)\b/i],
  ['Chemistry','Organic Chemistry – Basic Principles',/\b(general organic chemistry|inductive effect|resonance effect|carbocations?|carbanions?|hyperconjugation|carius method)\b/i],
  ['Chemistry','Hydrocarbons',/\b(hydrocarbons?|alkanes?|alkenes?|alkynes?|ozonolysis|aromaticity|friedel.crafts)\b/i],
+ ['Chemistry','Practical Chemistry',/\b(titrimetric analysis|salt analysis|group reagent|qualitative analysis|chemical tests?)\b/i],
  ['Chemistry','p-Block Elements',/\b(p.block|noble gases|halogens?|group 1[345678] elements)\b/i],
  ['Physics','Units and Measurements',/\b(vernier|screw gauge|dimensional formula|least count|significant figures|units and measurements)\b/i],
  ['Physics','Kinematics',/\b(kinematics|projectile|uniform acceleration|free fall|dropped from rest)\b/i],
@@ -1073,9 +1074,29 @@ function ebCanonical(value,subject){
   const row=EB_CHAPTERS.find(x=>x[0]===subject&&x[1].toLowerCase()===v.toLowerCase());
   return row?row[1]:v;
 }
-function ebInfer(q,title){
+
+/* Retroactive mappings of supplied ExamForge papers. Indexed by original Q1–Q75.
+ * Cross-chapter questions use the principal tested concept. Never change grading. */
+const EB_PAPER_MAPS = [
+ {title:'JEE Main 2026 | 5 April Morning Shift',chapters:["Complex Numbers and Quadratic Equations","Sequences and Series","Matrices and Determinants","Matrices and Determinants","Sequences and Series","Trigonometry","Probability","Statistics","Conic Sections","Circles","Straight Lines","Trigonometry","Three-Dimensional Geometry","Vector Algebra","Three-Dimensional Geometry","Applications of Integrals","Limits, Continuity and Differentiability","Integrals","Applications of Derivatives","Integrals","Sets, Relations and Functions","Permutations and Combinations","Binomial Theorem","Inverse Trigonometric Functions","Differential Equations","Units and Measurements","Units and Measurements","Gravitation","Laws of Motion","Laws of Motion","Mechanical Properties of Solids","Kinetic Theory of Gases","Thermodynamics","Current Electricity","Dual Nature of Radiation and Matter","Atoms","Electromagnetic Waves","Current Electricity","Wave Optics","Ray Optics","Dual Nature of Radiation and Matter","Ray Optics","Mechanical Properties of Solids","Alternating Current","Semiconductor Electronics","Mechanical Properties of Solids","Kinematics","Waves","Moving Charges and Magnetism","Electromagnetic Induction","Some Basic Concepts of Chemistry","Structure of Atom","Structure of Atom","Solutions","Equilibrium","Equilibrium","Chemical Kinetics","Redox Reactions","p-Block Elements","d- and f-Block Elements","Coordination Compounds","Coordination Compounds","Organic Chemistry – Basic Principles","Hydrocarbons","Hydrocarbons","Amines","Alcohols, Phenols and Ethers","Amines","Biomolecules","Practical Chemistry","Chemical Bonding","Organic Chemistry – Basic Principles","Alcohols, Phenols and Ethers","Thermodynamics","Chemical Kinetics"]},
+ {title:'JEE Main 2026 | 4 April Evening Shift (supplied paper key)',chapters:["Sets, Relations and Functions","Complex Numbers and Quadratic Equations","Matrices and Determinants","Complex Numbers and Quadratic Equations","Complex Numbers and Quadratic Equations","Matrices and Determinants","Sequences and Series","Statistics","Binomial Theorem","Conic Sections","Conic Sections","Applications of Derivatives","Three-Dimensional Geometry","Three-Dimensional Geometry","Vector Algebra","Sets, Relations and Functions","Permutations and Combinations","Applications of Integrals","Differential Equations","Integrals","Probability","Limits, Continuity and Differentiability","Straight Lines","Conic Sections","Limits, Continuity and Differentiability","Units and Measurements","Kinematics","Laws of Motion","Kinematics","Gravitation","Mechanical Properties of Solids","Mechanical Properties of Fluids","Kinetic Theory of Gases","Thermal Properties of Matter","Oscillations","Electrostatics","Electrostatics","Electrostatics","Magnetism and Matter","Electromagnetic Waves","Ray Optics","Wave Optics","Atoms","Dual Nature of Radiation and Matter","Semiconductor Electronics","Semiconductor Electronics","Kinematics","Magnetism and Matter","Moving Charges and Magnetism","Wave Optics","Some Basic Concepts of Chemistry","Structure of Atom","Chemical Bonding","Solutions","Equilibrium","Organic Chemistry – Basic Principles","Classification and Periodicity","p-Block Elements","d- and f-Block Elements","Coordination Compounds","Organic Chemistry – Basic Principles","d- and f-Block Elements","Chemical Kinetics","Hydrocarbons","Organic Chemistry – Basic Principles","Organic Chemistry – Basic Principles","Amines","Biomolecules","Practical Chemistry","Practical Chemistry","Thermodynamics","Equilibrium","Electrochemistry","Chemical Kinetics","Organic Chemistry – Basic Principles"]}
+];
+function ebTitleKey(value){return String(value||'').normalize('NFKC').trim().toLowerCase().replace(/\s+/g,' ');}
+function ebPaperChapter(q,title,index,total){
+  const paper=EB_PAPER_MAPS.find(p=>ebTitleKey(p.title)===ebTitleKey(title));
+  if(!paper||total!==75)return '';
+  const n=Number(index)+1;
+  if(!Number.isInteger(n)||n<1||n>75||String(q.id||'').toUpperCase()!=='Q'+n)return '';
+  const expected=n<=25?'Mathematics':n<=50?'Physics':'Chemistry';
+  if(ebSubject(q.subject)!==expected)return '';
+  return paper.chapters[n-1]||'';
+}
+
+function ebInfer(q,title,index,total){
   const subject=ebSubject(q.subject);
   if(q.chapter)return {name:ebCanonical(q.chapter,subject),source:'Tagged'};
+  const mapped=ebPaperChapter(q,title,index,total);
+  if(mapped)return {name:mapped,source:'Earlier paper mapping'};
   const candidates=EB_CHAPTERS.filter(x=>x[0]===subject);
   // A whole chapter title is good evidence; broad mixed papers stay unclassified.
   const exactTitle=candidates.filter(x=>String(title||'').toLowerCase().includes(x[1].toLowerCase()));
@@ -1091,12 +1112,13 @@ function ebEntries(data,edits){
     for(const [id,r] of Object.entries(attempts||{})){
       if(!r||typeof r!=='object')continue;
       const questions=r.report?.questions||[];
+      const total=Object.keys(questions).length;
       for(const [index,q] of Object.entries(questions)){
         if(!q||!['wrong','unanswered'].includes(q.outcome))continue;
         const key=kind+':'+id+':'+index;
         const subject=ebSubject(q.subject);
         const manual=edits.get(key);
-        const chapter=manual?.chapter?{name:ebCanonical(manual.chapter,subject),source:'Your chapter tag'}:ebInfer(q,r.title);
+        const chapter=manual?.chapter?{name:ebCanonical(manual.chapter,subject),source:'Your chapter tag'}:ebInfer(q,r.title,index,total);
         out.push({key,subject,chapter:chapter.name,source:chapter.source,q,
           number:Number.isFinite(Number(index))?Number(index)+1:index,
           title:r.title||'Untitled test',kind,id,time:Number(r.createdAt||r.clientCreatedAt)||0,manual});
@@ -1112,10 +1134,11 @@ function ebReadEdits(uid){
     return new Map(Array.isArray(raw)?raw.filter(x=>Array.isArray(x)&&x.length===2&&x[1]&&typeof x[1]==='object'):[]);
   }catch{return new Map();}
 }
-function ebSaveEdit(key,value){
+function ebSaveEdit(key,value){return ebSaveEdits([[key,value]]);}
+function ebSaveEdits(changes){
   if(!EB.uid||S.auth?.currentUser?.uid!==EB.uid)return false;
   const next=new Map(EB.edits);
-  if(value.chapter||value.note)next.set(key,value);else next.delete(key);
+  for(const [key,value] of changes){if(value.chapter||value.note)next.set(key,value);else next.delete(key);}
   try{localStorage.setItem(ebLocalKey(EB.uid),JSON.stringify([...next]));EB.edits=next;return true;}
   catch{toast('Could not save the chapter tag on this device.',true);return false;}
 }
@@ -1144,15 +1167,19 @@ function ebCreatePanel(){
   for(const [name,control] of [['Subject',subject],['Show',outcome],['Search',search]]){const label=ebElement('label',name);label.append(control);controls.append(label);}
   subject.onchange=()=>{EB.subject=subject.value;ebRender();};outcome.onchange=()=>{EB.outcome=outcome.value;ebRender();};search.oninput=()=>{EB.query=search.value;ebRender();};
   const status=ebElement('p','Loading your report history…','muted');status.id='ebStatus';status.setAttribute('role','status');
+  const bulk=ebElement('details',null,'eb-group');bulk.id='ebBulk';bulk.append(ebElement('summary','Bulk chapter correction'));
+  const bulkBody=ebElement('div',null);bulkBody.id='ebBulkBody';bulk.append(bulkBody);
+  bulk.addEventListener('toggle',()=>{if(bulk.open)ebRenderBulk();});
   const groups=ebElement('div',null);groups.id='ebGroups';
-  const foot=ebElement('p','Chapter tags from test codes are saved with reports. Suggestions are editable. Your manual tags and notes stay in this browser; reports sync with your Google account. Older image-only questions may need a chapter tag and the original paper.','fine-print');
-  panel.append(head,metrics,controls,status,groups,foot);
+  const foot=ebElement('p','Chapter tags from test codes are saved with reports. Earlier mapped papers update automatically. Suggestions and mappings are editable. Your manual tags and notes stay in this browser; reports sync with your Google account. Older image-only questions may need a chapter tag and the original paper.','fine-print');
+  panel.append(head,metrics,controls,status,bulk,groups,foot);
   const home=$('homeView'), hero=home.querySelector('.hero');
   if(hero)hero.after(panel);else home.prepend(panel);
 }
 function ebRender(){
   if(!EB.uid||S.auth?.currentUser?.uid!==EB.uid)return;
   const entries=ebEntries(EB.data,EB.edits);
+  if($('ebBulk')?.open)ebRenderBulk();
   const metrics=$('ebMetrics');metrics.replaceChildren();
   for(const [label,n] of [['Incorrect',entries.filter(e=>e.q.outcome==='wrong').length],['Unattempted',entries.filter(e=>e.q.outcome==='unanswered').length],['Chapters to revise',new Set(entries.filter(e=>e.q.outcome==='wrong'&&e.chapter!==EB_UNTAGGED).map(e=>e.subject+'|'+e.chapter)).size],['Need chapter tag',entries.filter(e=>e.chapter===EB_UNTAGGED).length]]){
     const item=ebElement('div',null,'eb-metric');item.append(ebElement('span',label,'muted'),ebElement('strong',String(n)));metrics.append(item);
@@ -1184,6 +1211,54 @@ function ebRender(){
     group.addEventListener('toggle',()=>{if(group.open)fill();});if(group.open)fill();oldGroups.append(group);
   }
 }
+
+function ebRenderBulk(){
+  const box=$('ebBulkBody');if(!box||!EB.uid)return;
+  const entries=ebEntries(EB.data,EB.edits);
+  const previous=box.querySelector('select')?.value||'';
+  box.replaceChildren(ebElement('p','Choose a saved attempt, select questions and apply a chapter. Scores and notes are preserved.','muted'));
+  const attempts=new Map();
+  for(const e of entries){const k=e.kind+':'+e.id;if(!attempts.has(k))attempts.set(k,[]);attempts.get(k).push(e);}
+  if(!attempts.size){box.append(ebElement('p','No saved errors to tag.','muted'));return;}
+  const test=ebElement('select',null);test.setAttribute('aria-label','Saved test');
+  for(const [id,items] of attempts)test.append(ebOption(id,items[0].title+' · '+(items[0].time?new Date(items[0].time).toLocaleString('en-IN'):'Unknown date')+' · '+items.length+' errors/skips'));
+  if(attempts.has(previous))test.value=previous;
+  const form=ebElement('div',null,'eb-editor');box.append(test,form);
+  function renderAttempt(){
+    form.replaceChildren();
+    const items=attempts.get(test.value)||[];
+    const subject=ebElement('select',null);subject.setAttribute('aria-label','Subject');
+    for(const name of [...new Set(items.map(e=>e.subject))])subject.append(ebOption(name,name));
+    const area=ebElement('div',null);form.append(subject,area);
+    function renderSubject(){
+      area.replaceChildren();
+      const subset=items.filter(e=>e.subject===subject.value);
+      const chapter=ebElement('input',null);chapter.maxLength=100;chapter.placeholder='Choose or enter chapter';chapter.setAttribute('aria-label','New chapter');
+      const list=ebElement('datalist',null);list.id='ebBulkChapters';
+      for(const row of EB_CHAPTERS.filter(x=>x[0]===subject.value))list.append(ebOption(row[1],row[1]));
+      chapter.setAttribute('list',list.id);
+      const rows=ebElement('div',null);rows.style.maxHeight='300px';rows.style.overflowY='auto';
+      const choices=[];
+      for(const e of subset){
+        const label=ebElement('label',null);label.style.display='block';
+        const cb=ebElement('input',null);cb.type='checkbox';cb.style.marginRight='8px';
+        label.append(cb,document.createTextNode('Q'+e.number+' · '+e.chapter+' · '+e.q.outcome));rows.append(label);choices.push({cb,e});
+      }
+      const buttons=ebElement('div',null,'button-row');
+      buttons.append(ebButton('Select unclassified',()=>choices.forEach(x=>x.cb.checked=x.e.chapter===EB_UNTAGGED)),
+        ebButton('Select all',()=>choices.forEach(x=>x.cb.checked=true)),
+        ebButton('Clear selection',()=>choices.forEach(x=>x.cb.checked=false)));
+      area.append(chapter,list,buttons,rows,ebButton('Apply chapter to selected',()=>{
+        const name=chapter.value.trim();const selected=choices.filter(x=>x.cb.checked);
+        if(!name||!selected.length){toast('Enter a chapter and select at least one question.',true);return;}
+        if(ebSaveEdits(selected.map(({e})=>[e.key,{chapter:name,note:e.manual?.note||''}]))){toast('Updated '+selected.length+' questions.');ebRender();}
+      }));
+    }
+    subject.onchange=renderSubject;renderSubject();
+  }
+  test.onchange=renderAttempt;renderAttempt();
+}
+
 function ebQuestion(e){
   const q=e.q,item=ebElement('details',null,'eb-item');
   item.append(ebElement('summary','Q'+e.number+' · '+e.title+' · '+(q.outcome==='wrong'?'Incorrect':'Unattempted')));
@@ -1211,7 +1286,7 @@ function stopErrorBook(){
   for(const unsub of EB.unsub)try{unsub();}catch{}
   EB.unsub=[];EB.uid=null;EB.data={};EB.errors={};EB.loading={};EB.edits=new Map();EB.subject='all';EB.outcome='wrong';EB.query='';
   const panel=$('errorBookPanel');
-  if(panel){panel.hidden=true;$('ebGroups').replaceChildren();$('ebMetrics').replaceChildren();$('ebSearch').value='';$('ebStatus').textContent='';}
+  if(panel){panel.hidden=true;$('ebBulk').open=false;$('ebBulkBody').replaceChildren();$('ebGroups').replaceChildren();$('ebMetrics').replaceChildren();$('ebSearch').value='';$('ebStatus').textContent='';}
 }
 function startErrorBook(uid,refresh=false){
   if(!S.db||!uid||!isGoogleUser()||S.auth.currentUser.uid!==uid)return;
