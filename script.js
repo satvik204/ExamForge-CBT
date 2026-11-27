@@ -190,7 +190,7 @@ function normalizePack(input) {
     const tolerance=type==='numerical'?numeric(q.tolerance??0.001,'Tolerance',0,100):0;
     const marks=q.marks == null ? correct : numeric(q.marks,`Question ${i+1} marks`,0,20);
     const negativeMarks=q.negativeMarks == null ? wrong : numeric(q.negativeMarks,`Question ${i+1} negative marks`,-20,0);
-    return { id: cleanText(q.id || `Q${i+1}`,40), subject,type,text,image,options,answer,tolerance,marks,negativeMarks,explanation:cleanText(q.explanation,7000),bonus:Boolean(q.bonus),...(Number.isInteger(Number(q.paperPage))&&Number(q.paperPage)>=1&&Number(q.paperPage)<=1000?{paperPage:Number(q.paperPage)}:{}) };
+    return { id: cleanText(q.id || `Q${i+1}`,40), subject,...(cleanText(q.chapter,100)?{chapter:cleanText(q.chapter,100)}:{}),type,text,image,options,answer,tolerance,marks,negativeMarks,explanation:cleanText(q.explanation,7000),bonus:Boolean(q.bonus),...(Number.isInteger(Number(q.paperPage))&&Number(q.paperPage)>=1&&Number(q.paperPage)<=1000?{paperPage:Number(q.paperPage)}:{}) };
   });
   const pack={version:1,title,durationMinutes,marking:{correct,wrong},questions};
   const paperUrl=validPaperUrl(input.paperUrl); if(paperUrl)pack.paperUrl=paperUrl;
@@ -213,7 +213,7 @@ function parsePack(code) {
   return normalizePack(JSON.parse(code));
 }
 function publicPaper(pack) {
-  return {title:pack.title,...(pack.paperUrl?{paperUrl:pack.paperUrl}:{}),...(efAttachment?.pack===pack?{paperDocument:efAttachment.document}:{}),questions:pack.questions.map(({id,subject,type,text,image,options,bonus,paperPage})=>({id,subject,type,text,image,options,bonus,...(paperPage?{paperPage}:{})}))};
+  return {title:pack.title,...(pack.paperUrl?{paperUrl:pack.paperUrl}:{}),...(efAttachment?.pack===pack?{paperDocument:efAttachment.document}:{}),questions:pack.questions.map(({id,subject,chapter,type,text,image,options,bonus,paperPage})=>({id,subject,...(chapter?{chapter}:{}),type,text,image,options,bonus,...(paperPage?{paperPage}:{})}))};
 }
 
 /* Read-only paper and image viewers. No answer data is rendered or shared. */
@@ -477,6 +477,7 @@ let identityReady=false,clockReady=false;
 function isGoogleUser(){return !!S.auth?.currentUser?.providerData?.some(p=>p.providerId==='google.com');}
 function authNote(message,bad=false){const e=$('authGateStatus');e.textContent=message;e.classList.toggle('error',bad);}
 function presentIdentityGate(){
+  stopErrorBook();
   $('authGate').hidden=false;
   document.body.classList.add('auth-locked');
   $('identityLabel').textContent='Choose how to enter ExamForge';
@@ -496,7 +497,7 @@ async function finishIdentity(){
   $('upgradeAccountBtn').hidden=google;
   badge(google?'Google account connected':'Guest · live rooms ready',true);
   if(!clockReady){watchServerClock();clockReady=true;}
-  if(google)flushPendingSoloHistory().catch(()=>{});
+  if(google){startErrorBook(user.uid);flushPendingSoloHistory().catch(()=>{});}else stopErrorBook();
   const fromUrl=new URLSearchParams(location.search).get('room');
   if(fromUrl){
     const code=fromUrl.toUpperCase();
@@ -563,9 +564,9 @@ $('switchAccountBtn').addEventListener('click',async()=>{
   if(S.view==='exam'&&!confirm('Leave this active test? Your unsent answers remain on this device.'))return;
   if(S.room && S.view==='results'){await exitResults();if(S.room)return;}
   else if(S.room){home();if(S.room)return;}
-  identityReady=false;S.uid=null;
+  identityReady=false;S.uid=null;stopErrorBook();
   try{await signOut(S.auth);presentIdentityGate();}
-  catch(e){toast('Sign-out failed: '+errorMessage(e),true);}
+  catch(e){toast('Sign-out failed: '+errorMessage(e),true);if(isGoogleUser()){S.uid=S.auth.currentUser.uid;identityReady=true;startErrorBook(S.uid);}}
 });
 
 function watchServerClock(){onValue(ref(S.db,'.info/serverTimeOffset'),s=>{S.offset=Number(s.val())||0;});}
@@ -827,7 +828,7 @@ function grade(pack,submission){
     sum.score+=pts;sum.maxScore+=q.marks;sum[outcome]++;
     if(!subjectStats[q.subject])subjectStats[q.subject]={score:0,correct:0,wrong:0,unanswered:0,maxScore:0};
     const st=subjectStats[q.subject];st.score+=pts;st.maxScore+=q.marks;st[outcome]++;
-    return {id:q.id,subject:q.subject,text:q.text,chosen,answer:q.bonus?'DROPPED (+4 bonus)':(Array.isArray(q.answer)?q.answer.join(','):String(q.answer)),outcome,points:pts,explanation:q.explanation||''};
+    return {id:q.id,subject:q.subject,...(q.chapter?{chapter:q.chapter}:{}),...(q.paperPage?{paperPage:q.paperPage}:{}),...(q.image?{hasImage:true}:{}),text:q.text,chosen,answer:q.bonus?'DROPPED (+4 bonus)':(Array.isArray(q.answer)?q.answer.join(','):String(q.answer)),outcome,points:pts,explanation:q.explanation||''};
   });
   sum.score=Number(sum.score.toFixed(4));sum.maxScore=Number(sum.maxScore.toFixed(4));
   return {score:sum,report:{questions,subjectStats}};
@@ -988,6 +989,249 @@ function renderReport(report){if(!report)return;setText('reportHeading',`${roomN
 function startSolo(){try{if(!S.pack)throw Error('Import a test code first.');if(efAttachmentBusy)throw Error('Wait for the PDF attachment to finish.');S.solo=true;S.room=null;S.paper=publicPaper(S.pack);S.meta=null;S.exam=null;S.myReport=null;S.reportCache={};S.scores={};S.members={};S.currentIdx=0;S.uid=S.uid||'solo';S.soloStartedAt=Date.now();S.selectedReportUid=S.uid||'solo';localStorage.removeItem(attemptStorageKey());beginExam(true);}catch(e){toast(errorMessage(e),true);}}
 function home(){if(S.isHost && S.meta?.status==='started' && Object.keys(S.scores).length<Object.keys(S.members).length && !confirm('You are hosting a live room. Leaving this page stops automatic scoring for friends until you reopen the room. Leave anyway?'))return;clearRoomListeners();S.room=null;S.meta=null;S.paper=null;S.exam=null;S.solo=false;S.isHost=false;S.selectedReportUid=S.uid;urlRoom('');view('home');}
 function downloadFile(filename,contents,mime){const blob=new Blob([contents],{type:mime});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+
+
+// Chapter-wise error book. Derive entries from private, immutable saved reports;
+// never add answer keys to public papers or duplicate embedded images in history.
+const EB_CHAPTERS = [
+ ['Chemistry','Solutions',/\b(raoult|henry.s law|azeotrop|colligative|van.t hoff|osmotic pressure|freezing.point depression|boiling.point elevation|mole fraction|molality)\b/i],
+ ['Chemistry','Electrochemistry',/\b(electrochem|electrolysis|nernst|kohlrausch|molar conductivity|salt bridge|galvanic cell|electrolytic cell|daniell cell|faraday.s law|lead storage battery|fuel cell|standard hydrogen electrode|cell constant|sacrificial anode)\b/i],
+ ['Chemistry','Chemical Kinetics',/\b(chemical kinetics|rate law|rate constant|reaction order|molecularity|activation energy|arrhenius|first.order reaction|zero.order reaction|pseudo.first.order|half.life of a reaction)\b/i],
+ ['Chemistry','d- and f-Block Elements',/\b(d.and.f.block|d.block|f.block|lanthanoid|lanthanide|actinoid|actinide|interstitial compounds?|transition metals?|potassium permanganate|potassium dichromate)\b/i],
+ ['Chemistry','Coordination Compounds',/\b(coordination compounds?|coordination number|crystal field|metal carbonyl|ligands?|chelating|coordination sphere)\b/i],
+ ['Chemistry','Haloalkanes and Haloarenes',/\b(haloalkanes?|haloarenes?|alkyl halides?|aryl halides?|wurtz reaction|finkelstein)\b/i],
+ ['Chemistry','Alcohols, Phenols and Ethers',/\b(alcohols?,? phenols? and ethers?|phenols?|ethers?|williamson synthesis)\b/i],
+ ['Chemistry','Aldehydes, Ketones and Carboxylic Acids',/\b(aldehydes?|ketones?|carboxylic acids?|cannizzaro|aldol|tollens|fehling|clemmensen)\b/i],
+ ['Chemistry','Amines',/\b(amines?|diazonium|gabriel phthalimide|carbylamine|hinsberg)\b/i],
+ ['Chemistry','Biomolecules',/\b(biomolecules|anomers?|glycosidic|peptide bond|amino acids?|monosaccharides?|vitamins?)\b/i],
+ ['Chemistry','Some Basic Concepts of Chemistry',/\b(mole concept|stoichiometry|limiting reagent|empirical formula|molar mass of a compound)\b/i],
+ ['Chemistry','Structure of Atom',/\b(atomic structure|structure of atom|quantum numbers?|atomic orbitals?|heisenberg|bohr model|aufbau)\b/i],
+ ['Chemistry','Classification and Periodicity',/\b(periodic table|periodicity|periodic trends|electronegativity|electron gain enthalpy)\b/i],
+ ['Chemistry','Chemical Bonding',/\b(chemical bonding|vsepr|hybridisation|hybridization|bond order|molecular orbital|dipole moment)\b/i],
+ ['Chemistry','Thermodynamics',/\b(thermodynamics|hess.s law|enthalpy of formation|entropy|gibbs free energy)\b/i],
+ ['Chemistry','Equilibrium',/\b(chemical equilibrium|ionic equilibrium|solubility product|buffer solution|common ion effect|le chatelier|pH of)\b/i],
+ ['Chemistry','Redox Reactions',/\b(redox reactions?|oxidation number|oxidation state|disproportionation)\b/i],
+ ['Chemistry','Organic Chemistry – Basic Principles',/\b(general organic chemistry|inductive effect|resonance effect|carbocations?|carbanions?|hyperconjugation|carius method)\b/i],
+ ['Chemistry','Hydrocarbons',/\b(hydrocarbons?|alkanes?|alkenes?|alkynes?|ozonolysis|aromaticity|friedel.crafts)\b/i],
+ ['Chemistry','p-Block Elements',/\b(p.block|noble gases|halogens?|group 1[345678] elements)\b/i],
+ ['Physics','Units and Measurements',/\b(vernier|screw gauge|dimensional formula|least count|significant figures|units and measurements)\b/i],
+ ['Physics','Kinematics',/\b(kinematics|projectile|uniform acceleration|free fall|dropped from rest)\b/i],
+ ['Physics','Laws of Motion',/\b(laws of motion|friction|pulley|wedge|newton.s law)\b/i],
+ ['Physics','Work, Energy and Power',/\b(work.energy|kinetic energy|conservation of energy|power delivered)\b/i],
+ ['Physics','Rotational Motion',/\b(rotational motion|moment of inertia|angular momentum|centre of mass|center of mass|rolling without slipping)\b/i],
+ ['Physics','Gravitation',/\b(gravitation|escape velocity|satellite|earth.s surface|orbital velocity)\b/i],
+ ['Physics','Mechanical Properties of Solids',/\b(young.s modulus|breaking stress|modulus of rigidity|elasticity|shear strain)\b/i],
+ ['Physics','Mechanical Properties of Fluids',/\b(bernoulli|viscosity|surface tension|fluid mechanics|buoyancy)\b/i],
+ ['Physics','Thermal Properties of Matter',/\b(thermal expansion|calorimetry|heat transfer|specific heat|thermal conductivity)\b/i],
+ ['Physics','Thermodynamics',/\b(thermodynamics|isothermal|adiabatic|carnot|internal energy)\b/i],
+ ['Physics','Kinetic Theory of Gases',/\b(kinetic theory|degrees? of freedom|rms speed|equipartition)\b/i],
+ ['Physics','Oscillations',/\b(simple harmonic|shm|oscillations?|pendulum)\b/i],
+ ['Physics','Waves',/\b(transverse wave|standing waves?|stationary waves?|successive crests|doppler effect)\b/i],
+ ['Physics','Electrostatics',/\b(electrostatics|electric flux|gauss.s law|electric potential|electric field|capacitor|capacitance)\b/i],
+ ['Physics','Current Electricity',/\b(current electricity|kirchhoff|wheatstone|resistivity|resistor network|potential divider)\b/i],
+ ['Physics','Moving Charges and Magnetism',/\b(moving charges|magnetic field|lorentz force|cyclotron|biot.savart)\b/i],
+ ['Physics','Magnetism and Matter',/\b(magnetism and matter|diamagnet|paramagnet|ferromagnet|magnetic susceptibility)\b/i],
+ ['Physics','Electromagnetic Induction',/\b(electromagnetic induction|lenz.s law|inductance|inductor|induced emf)\b/i],
+ ['Physics','Alternating Current',/\b(alternating current|reactance|impedance|rlc circuit|a\.c\. source|power factor)\b/i],
+ ['Physics','Electromagnetic Waves',/\b(displacement current|electromagnetic waves?|electromagnetic spectrum)\b/i],
+ ['Physics','Ray Optics',/\b(ray optics|prism|microscope|telescope|lens|total internal reflection)\b/i],
+ ['Physics','Wave Optics',/\b(wave optics|double slit|fringe width|diffraction|polarisation|polarization)\b/i],
+ ['Physics','Dual Nature of Radiation and Matter',/\b(de broglie|photo.electric|photoelectrons?|stopping potential|work function)\b/i],
+ ['Physics','Atoms',/\b(hydrogen atom|rydberg|bohr orbit|atomic spectra)\b/i],
+ ['Physics','Nuclei',/\b(nuclei|nuclear|radioactive|binding energy|mass defect)\b/i],
+ ['Physics','Semiconductor Electronics',/\b(semiconductor|logic gates?|logic circuit|diode|transistor|led)\b/i],
+ ['Mathematics','Sets, Relations and Functions',/\b(sets|relations?|one.one functions?|onto functions?|injective|surjective)\b/i],
+ ['Mathematics','Complex Numbers and Quadratic Equations',/\b(complex numbers?|quadratic equation|argand|roots of unity)\b/i],
+ ['Mathematics','Sequences and Series',/\b(sequences?|arithmetic progression|geometric progression|a\.p\.|g\.p\.)/i],
+ ['Mathematics','Permutations and Combinations',/\b(permutations?|combinations?|number of ways|number of arrangements)\b/i],
+ ['Mathematics','Binomial Theorem',/\b(binomial|coefficients? of.*expansion)\b/i],
+ ['Mathematics','Matrices and Determinants',/\b(matrix|matrices|determinants?|det\(|adj\(|system of linear equations)\b/i],
+ ['Mathematics','Trigonometry',/\b(trigonometry|trigonometric|tan a|sin x|cos x)\b/i],
+ ['Mathematics','Inverse Trigonometric Functions',/\b(inverse trigonometric|arctan|arcsin|arccos)\b/i],
+ ['Mathematics','Straight Lines',/\b(straight lines?|orthocentre|orthocenter|slope of a line)\b/i],
+ ['Mathematics','Circles',/\b(circles?|radius of the circle)\b/i],
+ ['Mathematics','Conic Sections',/\b(ellipse|parabola|hyperbola|conic sections?)\b/i],
+ ['Mathematics','Limits, Continuity and Differentiability',/\b(limits?|continuity|differentiability|differentiable|continuous function)\b/i],
+ ['Mathematics','Applications of Derivatives',/\b(critical points?|maximum value|minimum value|increasing function|decreasing function)\b/i],
+ ['Mathematics','Integrals',/\b(integrals?|integration)\b/i],
+ ['Mathematics','Applications of Integrals',/\b(area of the region|area bounded)\b/i],
+ ['Mathematics','Differential Equations',/\b(differential equations?)\b/i],
+ ['Mathematics','Vector Algebra',/\b(vector algebra|cross product|dot product|scalar triple product)\b/i],
+ ['Mathematics','Three-Dimensional Geometry',/\b(three.dimensional|3d geometry|distance of the point.*line|skew lines?)\b/i],
+ ['Mathematics','Probability',/\b(probability|bayes|random variable)\b/i],
+ ['Mathematics','Statistics',/\b(statistics|mean deviation|standard deviation|variance)\b/i]
+];
+const EB_UNTAGGED='Unclassified';
+const EB = {uid:null, unsub:[], data:{}, loading:{}, errors:{}, edits:new Map(), subject:'all', outcome:'wrong', query:''};
+function ebSubject(value){
+  const v=String(value||'General').trim();
+  return /^math(s|ematics)?$/i.test(v)?'Mathematics':/^phy(sics)?$/i.test(v)?'Physics':/^chem(istry)?$/i.test(v)?'Chemistry':v||'General';
+}
+function ebCanonical(value,subject){
+  const v=String(value||'').trim().slice(0,100);
+  if(!v)return '';
+  const row=EB_CHAPTERS.find(x=>x[0]===subject&&x[1].toLowerCase()===v.toLowerCase());
+  return row?row[1]:v;
+}
+function ebInfer(q,title){
+  const subject=ebSubject(q.subject);
+  if(q.chapter)return {name:ebCanonical(q.chapter,subject),source:'Tagged'};
+  const candidates=EB_CHAPTERS.filter(x=>x[0]===subject);
+  // A whole chapter title is good evidence; broad mixed papers stay unclassified.
+  const exactTitle=candidates.filter(x=>String(title||'').toLowerCase().includes(x[1].toLowerCase()));
+  if(exactTitle.length===1)return {name:exactTitle[0][1],source:'Suggested from test title'};
+  const text=String(q.text||'');
+  const matches=candidates.filter(x=>x[2].test(text));
+  if(matches.length===1)return {name:matches[0][1],source:'Suggested from question text'};
+  return {name:EB_UNTAGGED,source:'Needs chapter'};
+}
+function ebEntries(data,edits){
+  const out=[];
+  for(const [kind,attempts] of Object.entries(data)){
+    for(const [id,r] of Object.entries(attempts||{})){
+      if(!r||typeof r!=='object')continue;
+      const questions=r.report?.questions||[];
+      for(const [index,q] of Object.entries(questions)){
+        if(!q||!['wrong','unanswered'].includes(q.outcome))continue;
+        const key=kind+':'+id+':'+index;
+        const subject=ebSubject(q.subject);
+        const manual=edits.get(key);
+        const chapter=manual?.chapter?{name:ebCanonical(manual.chapter,subject),source:'Your chapter tag'}:ebInfer(q,r.title);
+        out.push({key,subject,chapter:chapter.name,source:chapter.source,q,
+          number:Number.isFinite(Number(index))?Number(index)+1:index,
+          title:r.title||'Untitled test',kind,id,time:Number(r.createdAt||r.clientCreatedAt)||0,manual});
+      }
+    }
+  }
+  return out.sort((a,b)=>b.time-a.time||Number(a.number)-Number(b.number));
+}
+function ebLocalKey(uid){return 'ef-error-book-tags-v1:'+uid;}
+function ebReadEdits(uid){
+  try{
+    const raw=JSON.parse(localStorage.getItem(ebLocalKey(uid))||'[]');
+    return new Map(Array.isArray(raw)?raw.filter(x=>Array.isArray(x)&&x.length===2&&x[1]&&typeof x[1]==='object'):[]);
+  }catch{return new Map();}
+}
+function ebSaveEdit(key,value){
+  if(!EB.uid||S.auth?.currentUser?.uid!==EB.uid)return false;
+  const next=new Map(EB.edits);
+  if(value.chapter||value.note)next.set(key,value);else next.delete(key);
+  try{localStorage.setItem(ebLocalKey(EB.uid),JSON.stringify([...next]));EB.edits=next;return true;}
+  catch{toast('Could not save the chapter tag on this device.',true);return false;}
+}
+function ebElement(tag,text,cls){
+  const e=document.createElement(tag);if(cls)e.className=cls;if(text!==null)e.textContent=text;return e;
+}
+function ebOption(value,label){const o=ebElement('option',label);o.value=value;return o;}
+function ebButton(text,fn){
+  const b=ebElement('button',text,'btn btn-outline');b.type='button';b.addEventListener('click',fn);return b;
+}
+function ebCreatePanel(){
+  if($('errorBookPanel'))return;
+  const css=document.createElement('style');
+  css.textContent='#errorBookPanel{margin:18px 0}#errorBookPanel[hidden]{display:none!important} .eb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}.eb-metric{border:1px solid rgba(127,140,160,.27);padding:12px;border-radius:12px;display:grid;gap:4px}.eb-metric strong{font-size:1.45rem}.eb-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:12px 0}.eb-controls label{flex:1;min-width:145px}.eb-controls input,.eb-controls select,.eb-editor input,.eb-editor textarea{width:100%;box-sizing:border-box}.eb-group{border:1px solid rgba(127,140,160,.27);border-radius:12px;padding:12px;margin:8px 0}.eb-group summary,.eb-item summary{cursor:pointer;overflow-wrap:anywhere}.eb-item{padding:11px 0;border-top:1px solid rgba(127,140,160,.23);margin-top:8px}.eb-item p{white-space:pre-wrap;overflow-wrap:anywhere}.eb-editor{display:grid;gap:6px;margin-top:10px}.eb-editor textarea{min-height:68px}.eb-badge{font-size:.82rem;opacity:.8}.eb-answer{display:flex;flex-wrap:wrap;gap:10px}.eb-group summary strong{font-size:1rem}.eb-item .muted{font-size:.84rem}';
+  document.head.append(css);
+  const panel=ebElement('section',null,'panel');panel.id='errorBookPanel';panel.hidden=true;
+  const head=ebElement('div',null,'panel-heading');
+  const title=ebElement('div',null);
+  title.append(ebElement('span','YOUR REVISION DASHBOARD','section-tag'),ebElement('h2','Chapter-wise Error Book'),ebElement('p','Your wrong and skipped questions from saved solo and live tests, grouped by chapter.'));
+  head.append(title,ebButton('Refresh',()=>{if(EB.uid)startErrorBook(EB.uid,true);}));
+  const metrics=ebElement('div',null,'eb-grid');metrics.id='ebMetrics';
+  const controls=ebElement('div',null,'eb-controls');
+  const subject=ebElement('select',null);subject.id='ebSubject';subject.append(ebOption('all','All subjects'));
+  const outcome=ebElement('select',null);outcome.id='ebOutcome';outcome.append(ebOption('wrong','Incorrect only'),ebOption('unanswered','Unattempted only'),ebOption('all','Incorrect + unattempted'));
+  const search=ebElement('input',null);search.id='ebSearch';search.type='search';search.placeholder='Chapter, question or test';
+  for(const [name,control] of [['Subject',subject],['Show',outcome],['Search',search]]){const label=ebElement('label',name);label.append(control);controls.append(label);}
+  subject.onchange=()=>{EB.subject=subject.value;ebRender();};outcome.onchange=()=>{EB.outcome=outcome.value;ebRender();};search.oninput=()=>{EB.query=search.value;ebRender();};
+  const status=ebElement('p','Loading your report history…','muted');status.id='ebStatus';status.setAttribute('role','status');
+  const groups=ebElement('div',null);groups.id='ebGroups';
+  const foot=ebElement('p','Chapter tags from test codes are saved with reports. Suggestions are editable. Your manual tags and notes stay in this browser; reports sync with your Google account. Older image-only questions may need a chapter tag and the original paper.','fine-print');
+  panel.append(head,metrics,controls,status,groups,foot);
+  const home=$('homeView'), hero=home.querySelector('.hero');
+  if(hero)hero.after(panel);else home.prepend(panel);
+}
+function ebRender(){
+  if(!EB.uid||S.auth?.currentUser?.uid!==EB.uid)return;
+  const entries=ebEntries(EB.data,EB.edits);
+  const metrics=$('ebMetrics');metrics.replaceChildren();
+  for(const [label,n] of [['Incorrect',entries.filter(e=>e.q.outcome==='wrong').length],['Unattempted',entries.filter(e=>e.q.outcome==='unanswered').length],['Chapters to revise',new Set(entries.filter(e=>e.q.outcome==='wrong'&&e.chapter!==EB_UNTAGGED).map(e=>e.subject+'|'+e.chapter)).size],['Need chapter tag',entries.filter(e=>e.chapter===EB_UNTAGGED).length]]){
+    const item=ebElement('div',null,'eb-metric');item.append(ebElement('span',label,'muted'),ebElement('strong',String(n)));metrics.append(item);
+  }
+  const subjects=[...new Set(entries.map(e=>e.subject))].sort();
+  if(EB.subject!=='all'&&!subjects.includes(EB.subject))EB.subject='all';
+  const select=$('ebSubject');select.replaceChildren(ebOption('all','All subjects'),...subjects.map(x=>ebOption(x,x)));select.value=EB.subject;
+  $('ebOutcome').value=EB.outcome;
+  const oldGroups=$('ebGroups');
+  const open=new Set([...oldGroups.querySelectorAll('.eb-group[open]')].map(e=>e.dataset.key));
+  oldGroups.replaceChildren();
+  const term=EB.query.trim().toLowerCase();
+  const filtered=entries.filter(e=>(EB.subject==='all'||e.subject===EB.subject)&&(EB.outcome==='all'||e.q.outcome===EB.outcome)&&(!term||[e.subject,e.chapter,e.title,e.q.text,e.manual?.note,e.q.id].some(v=>String(v||'').toLowerCase().includes(term))));
+  const pending=Object.values(EB.loading).some(Boolean);
+  const errorList=Object.values(EB.errors).filter(Boolean);
+  $('ebStatus').textContent=(pending?'Loading history… ':errorList.length?'Some reports could not load. Check Firebase history rules and refresh. ':'')+(filtered.length+' matching questions from '+Object.values(EB.data).reduce((n,v)=>n+Object.keys(v||{}).length,0)+' saved tests.');
+  if(!filtered.length){oldGroups.append(ebElement('p',entries.length?'No questions match these filters.':pending?'Your errors will appear here once history loads.':'No saved mistakes yet. Sign in before taking a test and submit it to build your error book.','muted'));return;}
+  const grouped=new Map();
+  for(const e of filtered){const key=e.subject+'|'+e.chapter;if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(e);}
+  const sorted=[...grouped].sort((a,b)=>b[1].filter(e=>e.q.outcome==='wrong').length-a[1].filter(e=>e.q.outcome==='wrong').length||b[1].length-a[1].length||a[0].localeCompare(b[0]));
+  for(const [key,items] of sorted){
+    const group=ebElement('details',null,'eb-group');group.dataset.key=key;group.open=open.has(key);
+    const summary=ebElement('summary',null);
+    const first=items[0],wrong=items.filter(e=>e.q.outcome==='wrong').length;
+    summary.append(ebElement('strong',first.subject+' · '+first.chapter),ebElement('span',' — '+wrong+' wrong · '+(items.length-wrong)+' skipped','eb-badge'));
+    group.append(summary);
+    // Build details lazily so several years of reports do not create thousands of DOM controls.
+    const fill=()=>{if(group.dataset.loaded)return;group.dataset.loaded='yes';for(const e of items)group.append(ebQuestion(e));typeset(group);};
+    group.addEventListener('toggle',()=>{if(group.open)fill();});if(group.open)fill();oldGroups.append(group);
+  }
+}
+function ebQuestion(e){
+  const q=e.q,item=ebElement('details',null,'eb-item');
+  item.append(ebElement('summary','Q'+e.number+' · '+e.title+' · '+(q.outcome==='wrong'?'Incorrect':'Unattempted')));
+  const when=e.time?new Date(e.time).toLocaleDateString('en-IN'):'Date unknown';
+  item.append(ebElement('p',(e.kind==='room'?'Live room':'Solo practice')+' · '+when+' · '+e.source+(q.paperPage?' · Paper page '+q.paperPage:''),'muted'));
+  item.append(ebElement('p',q.text||'Image-based question — refer to the original question paper.'));
+  if(q.hasImage)item.append(ebElement('p','This question contains an image. The original image is not duplicated in saved history.','muted'));
+  const answers=ebElement('div',null,'eb-answer');
+  answers.append(ebElement('strong','Your answer: '+(q.chosen==null||q.chosen===''?'Not attempted':String(q.chosen)),'wrong'),ebElement('strong','Correct: '+String(q.answer??'—'),'correct'));
+  item.append(answers);
+  if(q.explanation)item.append(ebElement('p','Explanation: '+q.explanation));
+  const editor=ebElement('div',null,'eb-editor');
+  const chapter=ebElement('input',null);chapter.type='text';chapter.maxLength=100;chapter.placeholder='Choose or enter a chapter';chapter.value=e.chapter===EB_UNTAGGED?'':e.chapter;
+  const list=ebElement('datalist',null);list.id='eb-chapters-'+e.key.replace(/[^a-zA-Z0-9_-]/g,'_');
+  for(const x of EB_CHAPTERS.filter(x=>x[0]===e.subject))list.append(ebOption(x[1],x[1]));
+  chapter.setAttribute('list',list.id);chapter.setAttribute('aria-label','Chapter for question '+e.number);
+  const note=ebElement('textarea',null);note.maxLength=1000;note.placeholder='Optional: why I got this wrong / what to remember';note.value=e.manual?.note||'';note.setAttribute('aria-label','Revision note');
+  const buttons=ebElement('div',null,'button-row');
+  buttons.append(ebButton('Save chapter / note',()=>{if(ebSaveEdit(e.key,{chapter:chapter.value.trim(),note:note.value.trim()})){toast('Saved in your Error Book.');ebRender();}}),ebButton('Reset manual tag',()=>{if(ebSaveEdit(e.key,{chapter:'',note:e.manual?.note||''})){ebRender();}}));
+  editor.append(ebElement('label','Chapter'),chapter,list,ebElement('label','My correction note'),note,buttons);
+  item.append(editor);
+  return item;
+}
+function stopErrorBook(){
+  for(const unsub of EB.unsub)try{unsub();}catch{}
+  EB.unsub=[];EB.uid=null;EB.data={};EB.errors={};EB.loading={};EB.edits=new Map();EB.subject='all';EB.outcome='wrong';EB.query='';
+  const panel=$('errorBookPanel');
+  if(panel){panel.hidden=true;$('ebGroups').replaceChildren();$('ebMetrics').replaceChildren();$('ebSearch').value='';$('ebStatus').textContent='';}
+}
+function startErrorBook(uid,refresh=false){
+  if(!S.db||!uid||!isGoogleUser()||S.auth.currentUser.uid!==uid)return;
+  if(EB.uid===uid&&EB.unsub.length&&!refresh)return;
+  const filters=refresh&&EB.uid===uid?{subject:EB.subject,outcome:EB.outcome,query:EB.query}:null;
+  stopErrorBook();ebCreatePanel();EB.uid=uid;EB.edits=ebReadEdits(uid);
+  if(filters)Object.assign(EB,filters);
+  $('ebSearch').value=EB.query;$('errorBookPanel').hidden=false;
+  EB.loading={room:true,solo:true};ebRender();
+  for(const [kind,path] of [['room','studentHistory/'],['solo','soloHistory/']]){
+    const unsub=onValue(ref(S.db,path+uid),snap=>{
+      if(EB.uid!==uid||S.auth.currentUser?.uid!==uid)return;
+      EB.data[kind]=snap.val()||{};EB.loading[kind]=false;delete EB.errors[kind];ebRender();
+    },err=>{
+      if(EB.uid!==uid)return;
+      EB.loading[kind]=false;EB.errors[kind]=String(err?.message||err);ebRender();
+    });
+    EB.unsub.push(unsub);
+  }
+}
 
 // DOM EVENTS
 $('importBtn').addEventListener('click',()=>{try{importPack(parsePack($('packInput').value));}catch(e){status(e.message,true);}});
