@@ -1180,7 +1180,7 @@ function ebChapterStats(entries,subject){
     if(e.q.outcome==='unanswered')st.skipped++;
     else{st.attempted++;st[e.q.outcome]++;}
   }
-  return [...map.values()].map(st=>({...st,errorRate:st.attempted?100*st.wrong/st.attempted:null,accuracy:st.attempted?100*st.correct/st.attempted:null}));
+  return [...map.values()].map(st=>({...st,total:st.attempted+st.skipped,skipRate:st.attempted+st.skipped?100*st.skipped/(st.attempted+st.skipped):null,errorRate:st.attempted?100*st.wrong/st.attempted:null,accuracy:st.attempted?100*st.correct/st.attempted:null}));
 }
 function ebSortStats(rows,sort){
   const pct=(a,b,key,dir)=>{
@@ -1197,6 +1197,9 @@ function ebSortStats(rows,sort){
       case 'accuracy-desc':d=pct(a,b,'accuracy',-1);break;
       case 'accuracy-asc':d=pct(a,b,'accuracy',1);break;
       case 'wrong-desc':d=b.wrong-a.wrong;break;
+      case 'skip-desc':d=b.skipped-a.skipped;break;
+      case 'skip-rate-desc':d=pct(a,b,'skipRate',-1);break;
+      case 'skip-rate-asc':d=pct(a,b,'skipRate',1);break;
       case 'attempt-desc':d=b.attempted-a.attempted;break;
       case 'correct-desc':d=b.correct-a.correct;break;
       case 'name':return a.chapter.localeCompare(b.chapter);
@@ -1207,7 +1210,7 @@ function ebSortStats(rows,sort){
 function ebFilterStats(rows,scope,query){
   const term=String(query||'').trim().toLowerCase();
   return rows.filter(r=>(!term||r.chapter.toLowerCase().includes(term))&&
-    (scope==='all'||(scope==='attempted'&&r.attempted>0)||(scope==='wrong'&&r.wrong>0)||(scope==='untagged'&&r.chapter===EB_UNTAGGED)));
+    (scope==='all'||(scope==='attempted'&&r.attempted>0)||(scope==='wrong'&&r.wrong>0)||(scope==='skipped'&&r.skipped>0)||(scope==='untagged'&&r.chapter===EB_UNTAGGED)));
 }
 
 function ebLocalKey(uid){return 'ef-error-book-tags-v1:'+uid;}
@@ -1293,12 +1296,12 @@ function ebButton(text,fn){
 function ebCreatePanel(){
   if($('errorBookPanel'))return;
   const css=document.createElement('style');
-  css.textContent='#errorBookPanel{margin:18px 0}#errorBookPanel[hidden]{display:none!important}.eb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}.eb-metric{border:1px solid rgba(127,140,160,.27);padding:12px;border-radius:12px;display:grid;gap:4px}.eb-metric strong{font-size:1.45rem}.eb-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 10px}.eb-tabs button{flex:1;min-width:90px}.eb-tabs button[aria-pressed=true]{background:#237f9c;color:white;border-color:#237f9c}.eb-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:12px 0}.eb-controls label{flex:1;min-width:145px}.eb-controls input,.eb-controls select,.eb-editor input,.eb-editor textarea{width:100%;box-sizing:border-box}.eb-table-wrap{overflow-x:auto;border:1px solid rgba(127,140,160,.27);border-radius:12px;margin:12px 0}.eb-table{width:100%;border-collapse:collapse;min-width:620px;font-variant-numeric:tabular-nums}.eb-table th,.eb-table td{padding:12px 10px;border-bottom:1px solid rgba(127,140,160,.2);text-align:right;white-space:nowrap}.eb-table th{font-size:.78rem;text-transform:uppercase;letter-spacing:.03em;background:rgba(127,140,160,.08)}.eb-table th:first-child,.eb-table td:first-child{text-align:left;white-space:normal;min-width:170px}.eb-table tr:last-child td{border-bottom:0}.eb-chapter-link{background:none;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:3px}.eb-weak{color:#f87171;font-weight:700}.eb-good{color:#34d399;font-weight:700}.eb-zero{opacity:.6}.eb-group{border:1px solid rgba(127,140,160,.27);border-radius:12px;padding:12px;margin:8px 0}.eb-group summary,.eb-item summary{cursor:pointer;overflow-wrap:anywhere}.eb-item{padding:11px 0;border-top:1px solid rgba(127,140,160,.23);margin-top:8px}.eb-item p{white-space:pre-wrap;overflow-wrap:anywhere}.eb-editor{display:grid;gap:6px;margin-top:10px}.eb-editor textarea{min-height:68px}.eb-answer{display:flex;flex-wrap:wrap;gap:10px}.eb-item .muted{font-size:.84rem}';
+  css.textContent='#errorBookPanel{margin:18px 0}#errorBookPanel[hidden]{display:none!important}.eb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}.eb-metric{border:1px solid rgba(127,140,160,.27);padding:12px;border-radius:12px;display:grid;gap:4px}.eb-metric strong{font-size:1.45rem}.eb-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 10px}.eb-tabs button{flex:1;min-width:90px}.eb-tabs button[aria-pressed=true]{background:#237f9c;color:white;border-color:#237f9c}.eb-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:12px 0}.eb-controls label{flex:1;min-width:145px}.eb-controls input,.eb-controls select,.eb-editor input,.eb-editor textarea{width:100%;box-sizing:border-box}.eb-table-wrap{overflow-x:auto;border:1px solid rgba(127,140,160,.27);border-radius:12px;margin:12px 0}.eb-table{width:100%;border-collapse:collapse;min-width:830px;font-variant-numeric:tabular-nums}.eb-table th,.eb-table td{padding:12px 10px;border-bottom:1px solid rgba(127,140,160,.2);text-align:right;white-space:nowrap}.eb-table th{font-size:.78rem;text-transform:uppercase;letter-spacing:.03em;background:rgba(127,140,160,.08)}.eb-table th:first-child,.eb-table td:first-child{text-align:left;white-space:normal;min-width:170px}.eb-table tr:last-child td{border-bottom:0}.eb-chapter-link{background:none;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:3px}.eb-weak{color:#f87171;font-weight:700}.eb-good{color:#34d399;font-weight:700}.eb-skipped{color:#f59e0b;font-weight:700}.eb-zero{opacity:.6}.eb-group{border:1px solid rgba(127,140,160,.27);border-radius:12px;padding:12px;margin:8px 0}.eb-group summary,.eb-item summary{cursor:pointer;overflow-wrap:anywhere}.eb-item{padding:11px 0;border-top:1px solid rgba(127,140,160,.23);margin-top:8px}.eb-item p{white-space:pre-wrap;overflow-wrap:anywhere}.eb-editor{display:grid;gap:6px;margin-top:10px}.eb-editor textarea{min-height:68px}.eb-answer{display:flex;flex-wrap:wrap;gap:10px}.eb-item .muted{font-size:.84rem}';
   document.head.append(css);
   const panel=ebElement('section',null,'panel');panel.id='errorBookPanel';panel.hidden=true;
   const head=ebElement('div',null,'panel-heading');
   const title=ebElement('div',null);
-  title.append(ebElement('span','YOUR REVISION DASHBOARD','section-tag'),ebElement('h2','Chapter-wise Error Book'),ebElement('p','Cumulative attempted questions, mistakes and accuracy for each chapter.'));
+  title.append(ebElement('span','YOUR REVISION DASHBOARD','section-tag'),ebElement('h2','Chapter-wise Error Book'),ebElement('p','Cumulative attempted and unattempted questions, mistakes and accuracy for each chapter.'));
   head.append(title,ebButton('Refresh',()=>{if(EB.uid)startErrorBook(EB.uid,true);}));
   const tabs=ebElement('div',null,'eb-tabs');tabs.id='ebTabs';tabs.setAttribute('role','group');tabs.setAttribute('aria-label','Choose subject');
   for(const subject of EB_SUBJECTS){
@@ -1307,9 +1310,9 @@ function ebCreatePanel(){
   const metrics=ebElement('div',null,'eb-grid');metrics.id='ebMetrics';
   const controls=ebElement('div',null,'eb-controls');
   const sort=ebElement('select',null);sort.id='ebSort';
-  for(const [value,label] of [['error-desc','Incorrect % — highest first'],['error-asc','Incorrect % — lowest first'],['accuracy-asc','Accuracy — lowest first'],['accuracy-desc','Accuracy — highest first'],['wrong-desc','Most incorrect questions'],['attempt-desc','Most attempted questions'],['correct-desc','Most correct questions'],['name','Chapter name A–Z']])sort.append(ebOption(value,label));
+  for(const [value,label] of [['error-desc','Incorrect % — highest first'],['error-asc','Incorrect % — lowest first'],['accuracy-asc','Accuracy — lowest first'],['accuracy-desc','Accuracy — highest first'],['wrong-desc','Most incorrect questions'],['skip-desc','Most unattempted questions'],['skip-rate-desc','Unattempted % — highest first'],['skip-rate-asc','Unattempted % — lowest first'],['attempt-desc','Most attempted questions'],['correct-desc','Most correct questions'],['name','Chapter name A–Z']])sort.append(ebOption(value,label));
   const scope=ebElement('select',null);scope.id='ebScope';
-  for(const [value,label] of [['all','All chapters'],['attempted','Attempted chapters only'],['wrong','Chapters with mistakes'],['untagged','Unclassified questions']])scope.append(ebOption(value,label));
+  for(const [value,label] of [['all','All chapters'],['attempted','Attempted chapters only'],['wrong','Chapters with mistakes'],['skipped','Chapters with unattempted questions'],['untagged','Unclassified questions']])scope.append(ebOption(value,label));
   const search=ebElement('input',null);search.id='ebSearch';search.type='search';search.placeholder='Find chapter';
   for(const [name,control] of [['Sort by',sort],['Filter',scope],['Search chapter',search]]){const label=ebElement('label',name);label.append(control);controls.append(label);}
   sort.onchange=()=>{EB.sort=sort.value;ebRender();};scope.onchange=()=>{EB.scope=scope.value;ebRender();};search.oninput=()=>{EB.query=search.value;ebRender();};
@@ -1320,7 +1323,7 @@ function ebCreatePanel(){
   const bulkBody=ebElement('div',null);bulkBody.id='ebBulkBody';bulk.append(bulkBody);
   bulk.addEventListener('toggle',()=>{if(bulk.open)ebRenderBulk();});
   const cloudStatus=ebElement('p','Checking account sync…','muted');cloudStatus.id='ebCloudStatus';cloudStatus.setAttribute('role','status');
-  const foot=ebElement('p','Attempted = correct + incorrect. Incorrect % = incorrect / attempted; accuracy = correct / attempted. Skipped and bonus questions do not affect either percentage. Earlier history includes only 4 April evening and 5 April morning mapped papers; all tests submitted from 27 November 2026, 4:13 PM IST onward are included. Untagged questions remain Unclassified until a chapter is assigned.','fine-print');
+  const foot=ebElement('p','Attempted = correct + incorrect. Incorrect % = incorrect / attempted; accuracy = correct / attempted. Unattempted % = unattempted / (attempted + unattempted). Unattempted questions do not affect accuracy or incorrect %. Bonus questions are excluded from all counts. Earlier history includes only 4 April evening and 5 April morning mapped papers; all tests submitted from 27 November 2026, 4:13 PM IST onward are included. Untagged questions remain Unclassified until a chapter is assigned.','fine-print');
   panel.append(head,tabs,metrics,controls,status,table,groups,bulk,cloudStatus,foot);
   const home=$('homeView'),hero=home.querySelector('.hero');
   if(hero)hero.after(panel);else home.prepend(panel);
@@ -1337,7 +1340,7 @@ function ebRender(){
   const totals=allRows.reduce((a,r)=>({wrong:a.wrong+r.wrong,correct:a.correct+r.correct,attempted:a.attempted+r.attempted,skipped:a.skipped+r.skipped}),{wrong:0,correct:0,attempted:0,skipped:0});
   const fmtPercent=n=>n===null?'—':n.toFixed(1)+'%';
   const metrics=$('ebMetrics');metrics.replaceChildren();
-  for(const [label,n] of [['Attempted',totals.attempted],['Incorrect',totals.wrong],['Correct',totals.correct],['Accuracy',fmtPercent(totals.attempted?100*totals.correct/totals.attempted:null)]]){
+  for(const [label,n] of [['Attempted',totals.attempted],['Incorrect',totals.wrong],['Correct',totals.correct],['Unattempted',totals.skipped],['Unattempted %',fmtPercent(totals.attempted+totals.skipped?100*totals.skipped/(totals.attempted+totals.skipped):null)],['Accuracy',fmtPercent(totals.attempted?100*totals.correct/totals.attempted:null)]]){
     const item=ebElement('div',null,'eb-metric');item.append(ebElement('span',label,'muted'),ebElement('strong',String(n)));metrics.append(item);
   }
   const eligibleCount=Object.values(EB.data).reduce((n,v)=>n+Object.values(v||{}).filter(ebEligible).length,0);
@@ -1349,20 +1352,20 @@ function ebRender(){
   const tableHost=$('ebTable');tableHost.replaceChildren();
   const table=ebElement('table',null,'eb-table');
   const thead=ebElement('thead',null),header=ebElement('tr',null);
-  for(const label of ['Chapter name','Incorrect','Attempted','Correct','Incorrect %','Accuracy %']){
+  for(const label of ['Chapter name','Incorrect','Attempted','Correct','Unattempted','Incorrect %','Accuracy %','Unattempted %']){
     const th=ebElement('th',label);th.scope='col';header.append(th);
   }
   thead.append(header);const body=ebElement('tbody',null);
   for(const row of rows){
-    const tr=ebElement('tr',null);if(!row.attempted)tr.className='eb-zero';
+    const tr=ebElement('tr',null);if(!row.total)tr.className='eb-zero';
     const name=ebElement('td',null);
     if(row.items.length){
       const link=ebElement('button',row.chapter,'eb-chapter-link');link.type='button';link.title='View question details';link.onclick=()=>{EB.selectedChapter=EB.selectedChapter===row.chapter?null:row.chapter;ebRenderDetails(allRows);};name.append(link);
     }else name.textContent=row.chapter;
-    tr.append(name,ebElement('td',String(row.wrong),row.wrong?'eb-weak':''),ebElement('td',String(row.attempted)),ebElement('td',String(row.correct),row.correct?'eb-good':''),ebElement('td',fmtPercent(row.errorRate),row.wrong?'eb-weak':''),ebElement('td',fmtPercent(row.accuracy),row.correct?'eb-good':''));
+    tr.append(name,ebElement('td',String(row.wrong),row.wrong?'eb-weak':''),ebElement('td',String(row.attempted)),ebElement('td',String(row.correct),row.correct?'eb-good':''),ebElement('td',String(row.skipped),row.skipped?'eb-skipped':''),ebElement('td',fmtPercent(row.errorRate),row.wrong?'eb-weak':''),ebElement('td',fmtPercent(row.accuracy),row.correct?'eb-good':''),ebElement('td',fmtPercent(row.skipRate),row.skipped?'eb-skipped':''));
     body.append(tr);
   }
-  if(!rows.length){const tr=ebElement('tr',null),td=ebElement('td','No chapters match these filters.');td.colSpan=6;tr.append(td);body.append(tr);}
+  if(!rows.length){const tr=ebElement('tr',null),td=ebElement('td','No chapters match these filters.');td.colSpan=8;tr.append(td);body.append(tr);}
   table.append(thead,body);tableHost.append(table);
   ebRenderDetails(allRows);
 }
@@ -1371,10 +1374,10 @@ function ebRenderDetails(rows){
   const row=rows.find(r=>r.chapter===EB.selectedChapter);
   if(!row||!row.items.length)return;
   const details=ebElement('section',null,'eb-group');
-  const top=ebElement('div',null,'panel-heading');top.append(ebElement('h3',row.chapter+' · '+row.attempted+' attempted'),ebButton('Close details',()=>{EB.selectedChapter=null;host.replaceChildren();}));
+  const top=ebElement('div',null,'panel-heading');top.append(ebElement('h3',row.chapter+' · '+row.attempted+' attempted · '+row.skipped+' unattempted'),ebButton('Close details',()=>{EB.selectedChapter=null;host.replaceChildren();}));
   const filter=ebElement('select',null);filter.setAttribute('aria-label','Question outcome');
-  for(const [v,l] of [['wrong','Incorrect questions'],['correct','Correct questions'],['unanswered','Skipped questions'],['all','All questions']])filter.append(ebOption(v,l));
-  filter.value=row.wrong?'wrong':row.correct?'correct':'unanswered';
+  for(const [v,l] of [['wrong','Incorrect questions'],['correct','Correct questions'],['unanswered','Unattempted questions'],['all','All questions']])filter.append(ebOption(v,l));
+  filter.value=EB.scope==='skipped'?'unanswered':row.wrong?'wrong':row.correct?'correct':'unanswered';
   const list=ebElement('div',null);
   const render=()=>{list.replaceChildren();const selected=row.items.filter(e=>filter.value==='all'||filter.value===e.q.outcome);if(!selected.length)list.append(ebElement('p','No questions with this outcome.','muted'));for(const e of selected)list.append(ebQuestion(e));typeset(list);};
   filter.onchange=render;details.append(top,filter,list);host.append(details);render();
