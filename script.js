@@ -847,10 +847,10 @@ function grade(pack,submission){
     sum.score+=pts;sum.maxScore+=q.marks;sum[outcome]++;
     if(!subjectStats[q.subject])subjectStats[q.subject]={score:0,correct:0,wrong:0,unanswered:0,maxScore:0};
     const st=subjectStats[q.subject];st.score+=pts;st.maxScore+=q.marks;st[outcome]++;
-    return {id:q.id,subject:q.subject,...(q.chapter?{chapter:q.chapter}:{}),...(q.paperPage?{paperPage:q.paperPage}:{}),...(q.image?{hasImage:true}:{}),text:q.text,chosen,answer:q.bonus?'DROPPED (+4 bonus)':(Array.isArray(q.answer)?q.answer.join(','):String(q.answer)),outcome,points:pts,explanation:q.explanation||''};
+    return {id:q.id,subject:q.subject,...(q.chapter?{chapter:q.chapter}:{}),...(q.paperPage?{paperPage:q.paperPage}:{}),...(q.image?{hasImage:true}:{}),...(q.bonus?{bonus:true}:{}),text:q.text,chosen,answer:q.bonus?'DROPPED (+4 bonus)':(Array.isArray(q.answer)?q.answer.join(','):String(q.answer)),outcome,points:pts,explanation:q.explanation||''};
   });
   sum.score=Number(sum.score.toFixed(4));sum.maxScore=Number(sum.maxScore.toFixed(4));
-  return {score:sum,report:{questions,subjectStats}};
+  return {score:sum,report:{questions,subjectStats,chapterStatsVersion:1}};
 }
 async function scoreIncoming(submissions){
   if(!S.isHost||!S.room||!S.meta||S.meta.status==='lobby')return;
@@ -1082,7 +1082,9 @@ const EB_CHAPTERS = [
  ['Mathematics','Statistics',/\b(statistics|mean deviation|standard deviation|variance)\b/i]
 ];
 const EB_UNTAGGED='Unclassified';
-const EB = {uid:null, unsub:[], data:{}, loading:{}, errors:{}, edits:new Map(), pending:new Map(), cloud:'local', cloudReady:false, cloudBusy:false, generation:0, subject:'all', outcome:'wrong', query:''};
+const EB_STATS_START=Date.parse('2026-11-27T16:13:45+05:30');
+const EB_SUBJECTS=['Physics','Chemistry','Mathematics'];
+const EB = {uid:null, unsub:[], data:{}, loading:{}, errors:{}, edits:new Map(), pending:new Map(), cloud:'local', cloudReady:false, cloudBusy:false, generation:0, subject:'Physics', sort:'error-desc', scope:'all', query:'', selectedChapter:null};
 function ebSubject(value){
   const v=String(value||'General').trim();
   return /^math(s|ematics)?$/i.test(v)?'Mathematics':/^phy(sics)?$/i.test(v)?'Physics':/^chem(istry)?$/i.test(v)?'Chemistry':v||'General';
@@ -1125,26 +1127,87 @@ function ebInfer(q,title,index,total){
   if(matches.length===1)return {name:matches[0][1],source:'Suggested from question text'};
   return {name:EB_UNTAGGED,source:'Needs chapter'};
 }
+function ebAttemptTime(r){
+  return Number(r.score?.submittedAt)||Number(r.clientCreatedAt)||Number(r.createdAt)||0;
+}
+function ebIsEarlierMapped(r){
+  const qs=r.report?.questions||{};
+  if(Object.keys(qs).length!==75)return false;
+  return Object.entries(qs).every(([i,q])=>q&&!!ebPaperChapter(q,r.title,i,75));
+}
+function ebEligible(r){
+  if(!r||typeof r!=='object'||!r.report?.questions)return false;
+  if(ebIsEarlierMapped(r))return true;
+  const time=ebAttemptTime(r);
+  return time?time>=EB_STATS_START:Number(r.report.chapterStatsVersion)===1;
+}
+function ebIsBonus(q){
+  return q.bonus===true||String(q.answer||'').startsWith('DROPPED (');
+}
 function ebEntries(data,edits){
   const out=[];
   for(const [kind,attempts] of Object.entries(data)){
     for(const [id,r] of Object.entries(attempts||{})){
-      if(!r||typeof r!=='object')continue;
-      const questions=r.report?.questions||[];
+      if(!ebEligible(r))continue;
+      const questions=r.report.questions||[];
       const total=Object.keys(questions).length;
       for(const [index,q] of Object.entries(questions)){
-        if(!q||!['wrong','unanswered'].includes(q.outcome))continue;
+        if(!q||ebIsBonus(q)||!['wrong','correct','unanswered'].includes(q.outcome))continue;
         const key=kind+':'+id+':'+index;
         const subject=ebSubject(q.subject);
         const manual=edits.get(key);
         const chapter=manual?.chapter?{name:ebCanonical(manual.chapter,subject),source:'Your chapter tag'}:ebInfer(q,r.title,index,total);
         out.push({key,subject,chapter:chapter.name,source:chapter.source,q,
           number:Number.isFinite(Number(index))?Number(index)+1:index,
-          title:r.title||'Untitled test',kind,id,time:Number(r.createdAt||r.clientCreatedAt)||0,manual});
+          title:r.title||'Untitled test',kind,id,time:ebAttemptTime(r),manual});
       }
     }
   }
   return out.sort((a,b)=>b.time-a.time||Number(a.number)-Number(b.number));
+}
+function ebChapterStats(entries,subject){
+  const map=new Map();
+  const ensure=chapter=>{
+    const key=chapter.trim().toLowerCase();
+    if(!map.has(key))map.set(key,{chapter,correct:0,wrong:0,attempted:0,skipped:0,items:[]});
+    return map.get(key);
+  };
+  for(const row of EB_CHAPTERS)if(row[0]===subject)ensure(row[1]);
+  for(const e of entries){
+    if(e.subject!==subject)continue;
+    const st=ensure(e.chapter||EB_UNTAGGED);
+    st.items.push(e);
+    if(e.q.outcome==='unanswered')st.skipped++;
+    else{st.attempted++;st[e.q.outcome]++;}
+  }
+  return [...map.values()].map(st=>({...st,errorRate:st.attempted?100*st.wrong/st.attempted:null,accuracy:st.attempted?100*st.correct/st.attempted:null}));
+}
+function ebSortStats(rows,sort){
+  const pct=(a,b,key,dir)=>{
+    if(a[key]===null&&b[key]===null)return 0;
+    if(a[key]===null)return 1;
+    if(b[key]===null)return -1;
+    return dir*(a[key]-b[key]);
+  };
+  return [...rows].sort((a,b)=>{
+    let d=0;
+    switch(sort){
+      case 'error-desc':d=pct(a,b,'errorRate',-1);break;
+      case 'error-asc':d=pct(a,b,'errorRate',1);break;
+      case 'accuracy-desc':d=pct(a,b,'accuracy',-1);break;
+      case 'accuracy-asc':d=pct(a,b,'accuracy',1);break;
+      case 'wrong-desc':d=b.wrong-a.wrong;break;
+      case 'attempt-desc':d=b.attempted-a.attempted;break;
+      case 'correct-desc':d=b.correct-a.correct;break;
+      case 'name':return a.chapter.localeCompare(b.chapter);
+    }
+    return d||b.attempted-a.attempted||b.wrong-a.wrong||a.chapter.localeCompare(b.chapter);
+  });
+}
+function ebFilterStats(rows,scope,query){
+  const term=String(query||'').trim().toLowerCase();
+  return rows.filter(r=>(!term||r.chapter.toLowerCase().includes(term))&&
+    (scope==='all'||(scope==='attempted'&&r.attempted>0)||(scope==='wrong'&&r.wrong>0)||(scope==='untagged'&&r.chapter===EB_UNTAGGED)));
 }
 
 function ebLocalKey(uid){return 'ef-error-book-tags-v1:'+uid;}
@@ -1230,77 +1293,103 @@ function ebButton(text,fn){
 function ebCreatePanel(){
   if($('errorBookPanel'))return;
   const css=document.createElement('style');
-  css.textContent='#errorBookPanel{margin:18px 0}#errorBookPanel[hidden]{display:none!important} .eb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}.eb-metric{border:1px solid rgba(127,140,160,.27);padding:12px;border-radius:12px;display:grid;gap:4px}.eb-metric strong{font-size:1.45rem}.eb-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:12px 0}.eb-controls label{flex:1;min-width:145px}.eb-controls input,.eb-controls select,.eb-editor input,.eb-editor textarea{width:100%;box-sizing:border-box}.eb-group{border:1px solid rgba(127,140,160,.27);border-radius:12px;padding:12px;margin:8px 0}.eb-group summary,.eb-item summary{cursor:pointer;overflow-wrap:anywhere}.eb-item{padding:11px 0;border-top:1px solid rgba(127,140,160,.23);margin-top:8px}.eb-item p{white-space:pre-wrap;overflow-wrap:anywhere}.eb-editor{display:grid;gap:6px;margin-top:10px}.eb-editor textarea{min-height:68px}.eb-badge{font-size:.82rem;opacity:.8}.eb-answer{display:flex;flex-wrap:wrap;gap:10px}.eb-group summary strong{font-size:1rem}.eb-item .muted{font-size:.84rem}';
+  css.textContent='#errorBookPanel{margin:18px 0}#errorBookPanel[hidden]{display:none!important}.eb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:14px 0}.eb-metric{border:1px solid rgba(127,140,160,.27);padding:12px;border-radius:12px;display:grid;gap:4px}.eb-metric strong{font-size:1.45rem}.eb-tabs{display:flex;gap:8px;flex-wrap:wrap;margin:16px 0 10px}.eb-tabs button{flex:1;min-width:90px}.eb-tabs button[aria-pressed=true]{background:#237f9c;color:white;border-color:#237f9c}.eb-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin:12px 0}.eb-controls label{flex:1;min-width:145px}.eb-controls input,.eb-controls select,.eb-editor input,.eb-editor textarea{width:100%;box-sizing:border-box}.eb-table-wrap{overflow-x:auto;border:1px solid rgba(127,140,160,.27);border-radius:12px;margin:12px 0}.eb-table{width:100%;border-collapse:collapse;min-width:620px;font-variant-numeric:tabular-nums}.eb-table th,.eb-table td{padding:12px 10px;border-bottom:1px solid rgba(127,140,160,.2);text-align:right;white-space:nowrap}.eb-table th{font-size:.78rem;text-transform:uppercase;letter-spacing:.03em;background:rgba(127,140,160,.08)}.eb-table th:first-child,.eb-table td:first-child{text-align:left;white-space:normal;min-width:170px}.eb-table tr:last-child td{border-bottom:0}.eb-chapter-link{background:none;border:0;color:inherit;font:inherit;text-align:left;cursor:pointer;padding:0;text-decoration:underline;text-underline-offset:3px}.eb-weak{color:#f87171;font-weight:700}.eb-good{color:#34d399;font-weight:700}.eb-zero{opacity:.6}.eb-group{border:1px solid rgba(127,140,160,.27);border-radius:12px;padding:12px;margin:8px 0}.eb-group summary,.eb-item summary{cursor:pointer;overflow-wrap:anywhere}.eb-item{padding:11px 0;border-top:1px solid rgba(127,140,160,.23);margin-top:8px}.eb-item p{white-space:pre-wrap;overflow-wrap:anywhere}.eb-editor{display:grid;gap:6px;margin-top:10px}.eb-editor textarea{min-height:68px}.eb-answer{display:flex;flex-wrap:wrap;gap:10px}.eb-item .muted{font-size:.84rem}';
   document.head.append(css);
   const panel=ebElement('section',null,'panel');panel.id='errorBookPanel';panel.hidden=true;
   const head=ebElement('div',null,'panel-heading');
   const title=ebElement('div',null);
-  title.append(ebElement('span','YOUR REVISION DASHBOARD','section-tag'),ebElement('h2','Chapter-wise Error Book'),ebElement('p','Your wrong and skipped questions from saved solo and live tests, grouped by chapter.'));
+  title.append(ebElement('span','YOUR REVISION DASHBOARD','section-tag'),ebElement('h2','Chapter-wise Error Book'),ebElement('p','Cumulative attempted questions, mistakes and accuracy for each chapter.'));
   head.append(title,ebButton('Refresh',()=>{if(EB.uid)startErrorBook(EB.uid,true);}));
+  const tabs=ebElement('div',null,'eb-tabs');tabs.id='ebTabs';tabs.setAttribute('role','group');tabs.setAttribute('aria-label','Choose subject');
+  for(const subject of EB_SUBJECTS){
+    const b=ebButton(subject,()=>{EB.subject=subject;EB.selectedChapter=null;ebRender();});b.dataset.subject=subject;b.setAttribute('aria-pressed','false');tabs.append(b);
+  }
   const metrics=ebElement('div',null,'eb-grid');metrics.id='ebMetrics';
   const controls=ebElement('div',null,'eb-controls');
-  const subject=ebElement('select',null);subject.id='ebSubject';subject.append(ebOption('all','All subjects'));
-  const outcome=ebElement('select',null);outcome.id='ebOutcome';outcome.append(ebOption('wrong','Incorrect only'),ebOption('unanswered','Unattempted only'),ebOption('all','Incorrect + unattempted'));
-  const search=ebElement('input',null);search.id='ebSearch';search.type='search';search.placeholder='Chapter, question or test';
-  for(const [name,control] of [['Subject',subject],['Show',outcome],['Search',search]]){const label=ebElement('label',name);label.append(control);controls.append(label);}
-  subject.onchange=()=>{EB.subject=subject.value;ebRender();};outcome.onchange=()=>{EB.outcome=outcome.value;ebRender();};search.oninput=()=>{EB.query=search.value;ebRender();};
+  const sort=ebElement('select',null);sort.id='ebSort';
+  for(const [value,label] of [['error-desc','Incorrect % — highest first'],['error-asc','Incorrect % — lowest first'],['accuracy-asc','Accuracy — lowest first'],['accuracy-desc','Accuracy — highest first'],['wrong-desc','Most incorrect questions'],['attempt-desc','Most attempted questions'],['correct-desc','Most correct questions'],['name','Chapter name A–Z']])sort.append(ebOption(value,label));
+  const scope=ebElement('select',null);scope.id='ebScope';
+  for(const [value,label] of [['all','All chapters'],['attempted','Attempted chapters only'],['wrong','Chapters with mistakes'],['untagged','Unclassified questions']])scope.append(ebOption(value,label));
+  const search=ebElement('input',null);search.id='ebSearch';search.type='search';search.placeholder='Find chapter';
+  for(const [name,control] of [['Sort by',sort],['Filter',scope],['Search chapter',search]]){const label=ebElement('label',name);label.append(control);controls.append(label);}
+  sort.onchange=()=>{EB.sort=sort.value;ebRender();};scope.onchange=()=>{EB.scope=scope.value;ebRender();};search.oninput=()=>{EB.query=search.value;ebRender();};
   const status=ebElement('p','Loading your report history…','muted');status.id='ebStatus';status.setAttribute('role','status');
-  const bulk=ebElement('details',null,'eb-group');bulk.id='ebBulk';bulk.append(ebElement('summary','Bulk chapter correction'));
+  const table=ebElement('div',null,'eb-table-wrap');table.id='ebTable';
+  const groups=ebElement('div',null);groups.id='ebGroups';
+  const bulk=ebElement('details',null,'eb-group');bulk.id='ebBulk';bulk.append(ebElement('summary','Optional: correct chapter tags in bulk'));
   const bulkBody=ebElement('div',null);bulkBody.id='ebBulkBody';bulk.append(bulkBody);
   bulk.addEventListener('toggle',()=>{if(bulk.open)ebRenderBulk();});
-  const groups=ebElement('div',null);groups.id='ebGroups';
   const cloudStatus=ebElement('p','Checking account sync…','muted');cloudStatus.id='ebCloudStatus';cloudStatus.setAttribute('role','status');
-  const foot=ebElement('p','Chapter tags from test codes are saved with reports. Earlier mapped papers update automatically. Suggestions and mappings are editable. Older image-only questions may need a chapter tag and the original paper.','fine-print');
-  panel.append(head,metrics,controls,status,cloudStatus,bulk,groups,foot);
-  const home=$('homeView'), hero=home.querySelector('.hero');
+  const foot=ebElement('p','Attempted = correct + incorrect. Incorrect % = incorrect / attempted; accuracy = correct / attempted. Skipped and bonus questions do not affect either percentage. Earlier history includes only 4 April evening and 5 April morning mapped papers; all tests submitted from 27 November 2026, 4:13 PM IST onward are included. Untagged questions remain Unclassified until a chapter is assigned.','fine-print');
+  panel.append(head,tabs,metrics,controls,status,table,groups,bulk,cloudStatus,foot);
+  const home=$('homeView'),hero=home.querySelector('.hero');
   if(hero)hero.after(panel);else home.prepend(panel);
 }
 function ebRender(){
   if(!EB.uid||S.auth?.currentUser?.uid!==EB.uid)return;
   const entries=ebEntries(EB.data,EB.edits);
+  if(!EB_SUBJECTS.includes(EB.subject))EB.subject='Physics';
+  for(const b of $('ebTabs').querySelectorAll('button'))b.setAttribute('aria-pressed',String(b.dataset.subject===EB.subject));
+  $('ebSort').value=EB.sort;$('ebScope').value=EB.scope;
   if($('ebBulk')?.open)ebRenderBulk();
+  const allRows=ebChapterStats(entries,EB.subject);
+  const relevant=entries.filter(e=>e.subject===EB.subject);
+  const totals=allRows.reduce((a,r)=>({wrong:a.wrong+r.wrong,correct:a.correct+r.correct,attempted:a.attempted+r.attempted,skipped:a.skipped+r.skipped}),{wrong:0,correct:0,attempted:0,skipped:0});
+  const fmtPercent=n=>n===null?'—':n.toFixed(1)+'%';
   const metrics=$('ebMetrics');metrics.replaceChildren();
-  for(const [label,n] of [['Incorrect',entries.filter(e=>e.q.outcome==='wrong').length],['Unattempted',entries.filter(e=>e.q.outcome==='unanswered').length],['Chapters to revise',new Set(entries.filter(e=>e.q.outcome==='wrong'&&e.chapter!==EB_UNTAGGED).map(e=>e.subject+'|'+e.chapter)).size],['Need chapter tag',entries.filter(e=>e.chapter===EB_UNTAGGED).length]]){
+  for(const [label,n] of [['Attempted',totals.attempted],['Incorrect',totals.wrong],['Correct',totals.correct],['Accuracy',fmtPercent(totals.attempted?100*totals.correct/totals.attempted:null)]]){
     const item=ebElement('div',null,'eb-metric');item.append(ebElement('span',label,'muted'),ebElement('strong',String(n)));metrics.append(item);
   }
-  const subjects=[...new Set(entries.map(e=>e.subject))].sort();
-  if(EB.subject!=='all'&&!subjects.includes(EB.subject))EB.subject='all';
-  const select=$('ebSubject');select.replaceChildren(ebOption('all','All subjects'),...subjects.map(x=>ebOption(x,x)));select.value=EB.subject;
-  $('ebOutcome').value=EB.outcome;
-  const oldGroups=$('ebGroups');
-  const open=new Set([...oldGroups.querySelectorAll('.eb-group[open]')].map(e=>e.dataset.key));
-  oldGroups.replaceChildren();
-  const term=EB.query.trim().toLowerCase();
-  const filtered=entries.filter(e=>(EB.subject==='all'||e.subject===EB.subject)&&(EB.outcome==='all'||e.q.outcome===EB.outcome)&&(!term||[e.subject,e.chapter,e.title,e.q.text,e.manual?.note,e.q.id].some(v=>String(v||'').toLowerCase().includes(term))));
-  const pending=Object.values(EB.loading).some(Boolean);
-  const errorList=Object.values(EB.errors).filter(Boolean);
-  $('ebStatus').textContent=(pending?'Loading history… ':errorList.length?'Some reports could not load. Check Firebase history rules and refresh. ':'')+(filtered.length+' matching questions from '+Object.values(EB.data).reduce((n,v)=>n+Object.keys(v||{}).length,0)+' saved tests.');
-  if(!filtered.length){oldGroups.append(ebElement('p',entries.length?'No questions match these filters.':pending?'Your errors will appear here once history loads.':'No saved mistakes yet. Sign in before taking a test and submit it to build your error book.','muted'));return;}
-  const grouped=new Map();
-  for(const e of filtered){const key=e.subject+'|'+e.chapter;if(!grouped.has(key))grouped.set(key,[]);grouped.get(key).push(e);}
-  const sorted=[...grouped].sort((a,b)=>b[1].filter(e=>e.q.outcome==='wrong').length-a[1].filter(e=>e.q.outcome==='wrong').length||b[1].length-a[1].length||a[0].localeCompare(b[0]));
-  for(const [key,items] of sorted){
-    const group=ebElement('details',null,'eb-group');group.dataset.key=key;group.open=open.has(key);
-    const summary=ebElement('summary',null);
-    const first=items[0],wrong=items.filter(e=>e.q.outcome==='wrong').length;
-    summary.append(ebElement('strong',first.subject+' · '+first.chapter),ebElement('span',' — '+wrong+' wrong · '+(items.length-wrong)+' skipped','eb-badge'));
-    group.append(summary);
-    // Build details lazily so several years of reports do not create thousands of DOM controls.
-    const fill=()=>{if(group.dataset.loaded)return;group.dataset.loaded='yes';for(const e of items)group.append(ebQuestion(e));typeset(group);};
-    group.addEventListener('toggle',()=>{if(group.open)fill();});if(group.open)fill();oldGroups.append(group);
+  const eligibleCount=Object.values(EB.data).reduce((n,v)=>n+Object.values(v||{}).filter(ebEligible).length,0);
+  const allCount=Object.values(EB.data).reduce((n,v)=>n+Object.keys(v||{}).length,0);
+  const pending=Object.values(EB.loading).some(Boolean),errorList=Object.values(EB.errors).filter(Boolean);
+  const unclassified=relevant.filter(e=>e.chapter===EB_UNTAGGED).length;
+  $('ebStatus').textContent=(pending?'Loading history… ':errorList.length?'Some reports could not load. Check history rules and refresh. ':'')+eligibleCount+' included test'+(eligibleCount===1?'':'s')+' · '+(allCount-eligibleCount)+' older tests excluded · '+unclassified+' unclassified '+EB.subject.toLowerCase()+' question'+(unclassified===1?'':'s')+'.';
+  const rows=ebSortStats(ebFilterStats(allRows,EB.scope,EB.query),EB.sort);
+  const tableHost=$('ebTable');tableHost.replaceChildren();
+  const table=ebElement('table',null,'eb-table');
+  const thead=ebElement('thead',null),header=ebElement('tr',null);
+  for(const label of ['Chapter name','Incorrect','Attempted','Correct','Incorrect %','Accuracy %']){
+    const th=ebElement('th',label);th.scope='col';header.append(th);
   }
+  thead.append(header);const body=ebElement('tbody',null);
+  for(const row of rows){
+    const tr=ebElement('tr',null);if(!row.attempted)tr.className='eb-zero';
+    const name=ebElement('td',null);
+    if(row.items.length){
+      const link=ebElement('button',row.chapter,'eb-chapter-link');link.type='button';link.title='View question details';link.onclick=()=>{EB.selectedChapter=EB.selectedChapter===row.chapter?null:row.chapter;ebRenderDetails(allRows);};name.append(link);
+    }else name.textContent=row.chapter;
+    tr.append(name,ebElement('td',String(row.wrong),row.wrong?'eb-weak':''),ebElement('td',String(row.attempted)),ebElement('td',String(row.correct),row.correct?'eb-good':''),ebElement('td',fmtPercent(row.errorRate),row.wrong?'eb-weak':''),ebElement('td',fmtPercent(row.accuracy),row.correct?'eb-good':''));
+    body.append(tr);
+  }
+  if(!rows.length){const tr=ebElement('tr',null),td=ebElement('td','No chapters match these filters.');td.colSpan=6;tr.append(td);body.append(tr);}
+  table.append(thead,body);tableHost.append(table);
+  ebRenderDetails(allRows);
+}
+function ebRenderDetails(rows){
+  const host=$('ebGroups');host.replaceChildren();
+  const row=rows.find(r=>r.chapter===EB.selectedChapter);
+  if(!row||!row.items.length)return;
+  const details=ebElement('section',null,'eb-group');
+  const top=ebElement('div',null,'panel-heading');top.append(ebElement('h3',row.chapter+' · '+row.attempted+' attempted'),ebButton('Close details',()=>{EB.selectedChapter=null;host.replaceChildren();}));
+  const filter=ebElement('select',null);filter.setAttribute('aria-label','Question outcome');
+  for(const [v,l] of [['wrong','Incorrect questions'],['correct','Correct questions'],['unanswered','Skipped questions'],['all','All questions']])filter.append(ebOption(v,l));
+  filter.value=row.wrong?'wrong':row.correct?'correct':'unanswered';
+  const list=ebElement('div',null);
+  const render=()=>{list.replaceChildren();const selected=row.items.filter(e=>filter.value==='all'||filter.value===e.q.outcome);if(!selected.length)list.append(ebElement('p','No questions with this outcome.','muted'));for(const e of selected)list.append(ebQuestion(e));typeset(list);};
+  filter.onchange=render;details.append(top,filter,list);host.append(details);render();
 }
 
 function ebRenderBulk(){
   const box=$('ebBulkBody');if(!box||!EB.uid)return;
   const entries=ebEntries(EB.data,EB.edits);
   const previous=box.querySelector('select')?.value||'';
-  box.replaceChildren(ebElement('p','Choose a saved attempt, select questions and apply a chapter. Scores and notes are preserved.','muted'));
+  box.replaceChildren(ebElement('p','Choose an included test, select questions (correct, incorrect or skipped), and assign a chapter. Scores and notes are preserved.','muted'));
   const attempts=new Map();
   for(const e of entries){const k=e.kind+':'+e.id;if(!attempts.has(k))attempts.set(k,[]);attempts.get(k).push(e);}
-  if(!attempts.size){box.append(ebElement('p','No saved errors to tag.','muted'));return;}
+  if(!attempts.size){box.append(ebElement('p','No included questions to tag.','muted'));return;}
   const test=ebElement('select',null);test.setAttribute('aria-label','Saved test');
-  for(const [id,items] of attempts)test.append(ebOption(id,items[0].title+' · '+(items[0].time?new Date(items[0].time).toLocaleString('en-IN'):'Unknown date')+' · '+items.length+' errors/skips'));
+  for(const [id,items] of attempts)test.append(ebOption(id,items[0].title+' · '+(items[0].time?new Date(items[0].time).toLocaleString('en-IN'):'Unknown date')+' · '+items.length+' questions'));
   if(attempts.has(previous))test.value=previous;
   const form=ebElement('div',null,'eb-editor');box.append(test,form);
   function renderAttempt(){
@@ -1340,13 +1429,13 @@ function ebRenderBulk(){
 
 function ebQuestion(e){
   const q=e.q,item=ebElement('details',null,'eb-item');
-  item.append(ebElement('summary','Q'+e.number+' · '+e.title+' · '+(q.outcome==='wrong'?'Incorrect':'Unattempted')));
+  item.append(ebElement('summary','Q'+e.number+' · '+e.title+' · '+(q.outcome==='wrong'?'Incorrect':q.outcome==='correct'?'Correct':'Unattempted')));
   const when=e.time?new Date(e.time).toLocaleDateString('en-IN'):'Date unknown';
   item.append(ebElement('p',(e.kind==='room'?'Live room':'Solo practice')+' · '+when+' · '+e.source+(q.paperPage?' · Paper page '+q.paperPage:''),'muted'));
   item.append(ebElement('p',q.text||'Image-based question — refer to the original question paper.'));
   if(q.hasImage)item.append(ebElement('p','This question contains an image. The original image is not duplicated in saved history.','muted'));
   const answers=ebElement('div',null,'eb-answer');
-  answers.append(ebElement('strong','Your answer: '+(q.chosen==null||q.chosen===''?'Not attempted':String(q.chosen)),'wrong'),ebElement('strong','Correct: '+String(q.answer??'—'),'correct'));
+  answers.append(ebElement('strong','Your answer: '+(q.chosen==null||q.chosen===''?'Not attempted':String(q.chosen)),q.outcome==='correct'?'correct':'wrong'),ebElement('strong','Correct: '+String(q.answer??'—'),'correct'));
   item.append(answers);
   if(q.explanation)item.append(ebElement('p','Explanation: '+q.explanation));
   const editor=ebElement('div',null,'eb-editor');
@@ -1363,14 +1452,14 @@ function ebQuestion(e){
 }
 function stopErrorBook(){
   for(const unsub of EB.unsub)try{unsub();}catch{}
-  EB.generation++;EB.unsub=[];EB.uid=null;EB.data={};EB.errors={};EB.loading={};EB.edits=new Map();EB.pending=new Map();EB.cloud='local';EB.cloudReady=false;EB.cloudBusy=false;EB.subject='all';EB.outcome='wrong';EB.query='';
+  EB.generation++;EB.unsub=[];EB.uid=null;EB.data={};EB.errors={};EB.loading={};EB.edits=new Map();EB.pending=new Map();EB.cloud='local';EB.cloudReady=false;EB.cloudBusy=false;EB.subject='Physics';EB.sort='error-desc';EB.scope='all';EB.query='';EB.selectedChapter=null;
   const panel=$('errorBookPanel');
-  if(panel){panel.hidden=true;$('ebBulk').open=false;$('ebBulkBody').replaceChildren();$('ebGroups').replaceChildren();$('ebMetrics').replaceChildren();$('ebSearch').value='';$('ebStatus').textContent='';}
+  if(panel){panel.hidden=true;$('ebBulk').open=false;$('ebBulkBody').replaceChildren();$('ebGroups').replaceChildren();$('ebTable').replaceChildren();$('ebMetrics').replaceChildren();$('ebSearch').value='';$('ebStatus').textContent='';}
 }
 function startErrorBook(uid,refresh=false){
   if(!S.db||!uid||!isGoogleUser()||S.auth.currentUser.uid!==uid)return;
   if(EB.uid===uid&&EB.unsub.length&&!refresh)return;
-  const filters=refresh&&EB.uid===uid?{subject:EB.subject,outcome:EB.outcome,query:EB.query}:null;
+  const filters=refresh&&EB.uid===uid?{subject:EB.subject,sort:EB.sort,scope:EB.scope,query:EB.query,selectedChapter:EB.selectedChapter}:null;
   stopErrorBook();ebCreatePanel();EB.uid=uid;EB.edits=ebReadEdits(uid);EB.pending=ebReadMap(ebPendingKey(uid));
   for(const [key,v] of EB.pending){if(ebTagActive(v))EB.edits.set(key,v);else EB.edits.delete(key);}
   if(filters)Object.assign(EB,filters);
