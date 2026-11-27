@@ -93,6 +93,25 @@ const DATABASE_RULES = {
       },
       ".read": "auth != null && auth.uid === 'PASTE_YOUR_GOOGLE_AUTH_UID_HERE'"
     },
+    "errorBookTags": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous'",
+        ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && !newData.exists()",
+        "$entry": {
+          ".write": "auth != null && auth.uid === $uid && auth.token.firebase.sign_in_provider !== 'anonymous' && newData.exists()",
+          ".validate": "newData.hasChildren(['chapter','note']) && newData.child('chapter').isString() && newData.child('chapter').val().length <= 100 && newData.child('note').isString() && newData.child('note').val().length <= 1000",
+          "chapter": {
+            ".validate": "newData.isString()"
+          },
+          "note": {
+            ".validate": "newData.isString()"
+          },
+          "$other": {
+            ".validate": false
+          }
+        }
+      }
+    },
     "soloHistory": {
       ".read": "auth != null && auth.uid === \"PASTE_YOUR_GOOGLE_AUTH_UID_HERE\"",
       "$uid": {
@@ -1063,7 +1082,7 @@ const EB_CHAPTERS = [
  ['Mathematics','Statistics',/\b(statistics|mean deviation|standard deviation|variance)\b/i]
 ];
 const EB_UNTAGGED='Unclassified';
-const EB = {uid:null, unsub:[], data:{}, loading:{}, errors:{}, edits:new Map(), subject:'all', outcome:'wrong', query:''};
+const EB = {uid:null, unsub:[], data:{}, loading:{}, errors:{}, edits:new Map(), pending:new Map(), cloud:'local', cloudReady:false, cloudBusy:false, generation:0, subject:'all', outcome:'wrong', query:''};
 function ebSubject(value){
   const v=String(value||'General').trim();
   return /^math(s|ematics)?$/i.test(v)?'Mathematics':/^phy(sics)?$/i.test(v)?'Physics':/^chem(istry)?$/i.test(v)?'Chemistry':v||'General';
@@ -1127,20 +1146,79 @@ function ebEntries(data,edits){
   }
   return out.sort((a,b)=>b.time-a.time||Number(a.number)-Number(b.number));
 }
+
 function ebLocalKey(uid){return 'ef-error-book-tags-v1:'+uid;}
-function ebReadEdits(uid){
+function ebPendingKey(uid){return 'ef-error-book-pending-v1:'+uid;}
+function ebReadMap(key){
   try{
-    const raw=JSON.parse(localStorage.getItem(ebLocalKey(uid))||'[]');
-    return new Map(Array.isArray(raw)?raw.filter(x=>Array.isArray(x)&&x.length===2&&x[1]&&typeof x[1]==='object'):[]);
+    const raw=JSON.parse(localStorage.getItem(key)||'[]');
+    return new Map(Array.isArray(raw)?raw.filter(x=>Array.isArray(x)&&x.length===2&&typeof x[0]==='string'&&x[1]&&typeof x[1]==='object'):[]);
   }catch{return new Map();}
+}
+function ebReadEdits(uid){return ebReadMap(ebLocalKey(uid));}
+function ebTagValue(v){return {chapter:String(v?.chapter||'').slice(0,100),note:String(v?.note||'').slice(0,1000)};}
+function ebTagActive(v){return !!(v.chapter||v.note);}
+function ebPersist(){
+  if(!EB.uid)return;
+  localStorage.setItem(ebPendingKey(EB.uid),JSON.stringify([...EB.pending]));
+  localStorage.setItem(ebLocalKey(EB.uid),JSON.stringify([...EB.edits]));
 }
 function ebSaveEdit(key,value){return ebSaveEdits([[key,value]]);}
 function ebSaveEdits(changes){
   if(!EB.uid||S.auth?.currentUser?.uid!==EB.uid)return false;
-  const next=new Map(EB.edits);
-  for(const [key,value] of changes){if(value.chapter||value.note)next.set(key,value);else next.delete(key);}
-  try{localStorage.setItem(ebLocalKey(EB.uid),JSON.stringify([...next]));EB.edits=next;return true;}
-  catch{toast('Could not save the chapter tag on this device.',true);return false;}
+  const next=new Map(EB.edits), pending=new Map(EB.pending);
+  for(const [key,value] of changes){const v=ebTagValue(value);pending.set(key,v);if(ebTagActive(v))next.set(key,v);else next.delete(key);}
+  try{
+    localStorage.setItem(ebPendingKey(EB.uid),JSON.stringify([...pending]));
+    localStorage.setItem(ebLocalKey(EB.uid),JSON.stringify([...next]));
+    EB.edits=next;EB.pending=pending;ebFlushTags();return true;
+  }catch{toast('Could not save the chapter tag on this device.',true);return false;}
+}
+function ebCloudKey(key){return encodeURIComponent(key).replace(/\./g,'%2E');}
+function ebMergeTags(remote,local,pending,migrate){
+  const next=new Map(), known=new Set(), queue=new Map(pending);
+  for(const [encoded,value] of Object.entries(remote||{})){
+    let key;try{key=decodeURIComponent(encoded);}catch{continue;}
+    const v=ebTagValue(value);known.add(key);if(ebTagActive(v))next.set(key,v);
+  }
+  if(migrate)for(const [key,v] of local)if(!known.has(key)&&!queue.has(key))queue.set(key,ebTagValue(v));
+  for(const [key,v] of queue){if(ebTagActive(v))next.set(key,v);else next.delete(key);}
+  return {next,queue};
+}
+function ebCloudStatus(){
+  const el=$('ebCloudStatus');if(!el)return;
+  el.textContent=EB.cloud==='synced'?(EB.pending.size?'Account sync enabled · '+EB.pending.size+' changes waiting to sync.':'Chapter corrections and notes synced to your account.'):
+    EB.cloud==='checking'?'Checking account sync…':'Corrections saved on this browser. Enable the latest Firebase Error Book rules for cross-device sync.';
+}
+async function ebFlushTags(){
+  if(!EB.cloudReady||EB.cloudBusy||!EB.pending.size||!EB.uid||S.auth?.currentUser?.uid!==EB.uid)return;
+  const uid=EB.uid,gen=EB.generation,batch=new Map(EB.pending);EB.cloudBusy=true;ebCloudStatus();
+  try{
+    const changes={};for(const [key,v] of batch)changes[ebCloudKey(key)]=ebTagValue(v);
+    await update(ref(S.db,'errorBookTags/'+uid),changes);
+    if(EB.uid!==uid||EB.generation!==gen)return;
+    for(const [key,v] of batch)if(JSON.stringify(EB.pending.get(key))===JSON.stringify(v))EB.pending.delete(key);
+    try{ebPersist();}catch{}
+    EB.cloud='synced';
+  }catch(e){if(EB.uid===uid&&EB.generation===gen){EB.cloud='local';EB.cloudReady=false;console.warn('Error Book account sync unavailable',e);}}
+  finally{
+    if(EB.uid===uid&&EB.generation===gen){EB.cloudBusy=false;ebCloudStatus();if(EB.cloudReady&&EB.pending.size)ebFlushTags();}
+  }
+}
+function ebWatchTags(uid){
+  const gen=EB.generation;
+  EB.cloud='checking';ebCloudStatus();
+  const unsub=onValue(ref(S.db,'errorBookTags/'+uid),snap=>{
+    if(EB.uid!==uid||EB.generation!==gen||S.auth.currentUser?.uid!==uid)return;
+    const merged=ebMergeTags(snap.val()||{},EB.edits,EB.pending,!EB.cloudReady);
+    EB.edits=merged.next;EB.pending=merged.queue;EB.cloudReady=true;EB.cloud='synced';
+    try{ebPersist();}catch{}
+    ebRender();ebCloudStatus();ebFlushTags();
+  },()=>{
+    if(EB.uid!==uid||EB.generation!==gen)return;
+    EB.cloudReady=false;EB.cloud='local';ebCloudStatus();
+  });
+  EB.unsub.push(unsub);
 }
 function ebElement(tag,text,cls){
   const e=document.createElement(tag);if(cls)e.className=cls;if(text!==null)e.textContent=text;return e;
@@ -1171,8 +1249,9 @@ function ebCreatePanel(){
   const bulkBody=ebElement('div',null);bulkBody.id='ebBulkBody';bulk.append(bulkBody);
   bulk.addEventListener('toggle',()=>{if(bulk.open)ebRenderBulk();});
   const groups=ebElement('div',null);groups.id='ebGroups';
-  const foot=ebElement('p','Chapter tags from test codes are saved with reports. Earlier mapped papers update automatically. Suggestions and mappings are editable. Your manual tags and notes stay in this browser; reports sync with your Google account. Older image-only questions may need a chapter tag and the original paper.','fine-print');
-  panel.append(head,metrics,controls,status,bulk,groups,foot);
+  const cloudStatus=ebElement('p','Checking account sync…','muted');cloudStatus.id='ebCloudStatus';cloudStatus.setAttribute('role','status');
+  const foot=ebElement('p','Chapter tags from test codes are saved with reports. Earlier mapped papers update automatically. Suggestions and mappings are editable. Older image-only questions may need a chapter tag and the original paper.','fine-print');
+  panel.append(head,metrics,controls,status,cloudStatus,bulk,groups,foot);
   const home=$('homeView'), hero=home.querySelector('.hero');
   if(hero)hero.after(panel);else home.prepend(panel);
 }
@@ -1284,7 +1363,7 @@ function ebQuestion(e){
 }
 function stopErrorBook(){
   for(const unsub of EB.unsub)try{unsub();}catch{}
-  EB.unsub=[];EB.uid=null;EB.data={};EB.errors={};EB.loading={};EB.edits=new Map();EB.subject='all';EB.outcome='wrong';EB.query='';
+  EB.generation++;EB.unsub=[];EB.uid=null;EB.data={};EB.errors={};EB.loading={};EB.edits=new Map();EB.pending=new Map();EB.cloud='local';EB.cloudReady=false;EB.cloudBusy=false;EB.subject='all';EB.outcome='wrong';EB.query='';
   const panel=$('errorBookPanel');
   if(panel){panel.hidden=true;$('ebBulk').open=false;$('ebBulkBody').replaceChildren();$('ebGroups').replaceChildren();$('ebMetrics').replaceChildren();$('ebSearch').value='';$('ebStatus').textContent='';}
 }
@@ -1292,10 +1371,11 @@ function startErrorBook(uid,refresh=false){
   if(!S.db||!uid||!isGoogleUser()||S.auth.currentUser.uid!==uid)return;
   if(EB.uid===uid&&EB.unsub.length&&!refresh)return;
   const filters=refresh&&EB.uid===uid?{subject:EB.subject,outcome:EB.outcome,query:EB.query}:null;
-  stopErrorBook();ebCreatePanel();EB.uid=uid;EB.edits=ebReadEdits(uid);
+  stopErrorBook();ebCreatePanel();EB.uid=uid;EB.edits=ebReadEdits(uid);EB.pending=ebReadMap(ebPendingKey(uid));
+  for(const [key,v] of EB.pending){if(ebTagActive(v))EB.edits.set(key,v);else EB.edits.delete(key);}
   if(filters)Object.assign(EB,filters);
   $('ebSearch').value=EB.query;$('errorBookPanel').hidden=false;
-  EB.loading={room:true,solo:true};ebRender();
+  EB.loading={room:true,solo:true};ebRender();ebWatchTags(uid);
   for(const [kind,path] of [['room','studentHistory/'],['solo','soloHistory/']]){
     const unsub=onValue(ref(S.db,path+uid),snap=>{
       if(EB.uid!==uid||S.auth.currentUser?.uid!==uid)return;
